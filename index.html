@@ -1,0 +1,344 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Octo Lives There — Real Map with Image Stickers + Snapshot</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <!-- Leaflet & Geocoder CSS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet-control-geocoder/dist/Control.Geocoder.css" />
+
+  <!-- html-to-image for DOM→canvas screenshots -->
+  <script src="https://unpkg.com/html-to-image@1.11.11/dist/html-to-image.min.js"></script>
+
+  <style>
+    :root{
+      --bg:#0b1220; --panel:#11192b; --ink:#e7eefc; --muted:#9fb0cf; --ring:0 0 0 3px rgba(122,162,255,.35);
+    }
+    *{box-sizing:border-box}
+    html,body{height:100%}
+    body{
+      margin:0; height:100%;
+      background: radial-gradient(1200px 600px at 70% -10%, rgba(76,243,194,.07), transparent),
+                  radial-gradient(900px 700px at -20% 20%, rgba(122,162,255,.08), transparent),
+                  var(--bg);
+      color:var(--ink);
+      font: 16px/1.45 ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, "Helvetica Neue", Arial, "Apple Color Emoji","Segoe UI Emoji";
+      display:flex; flex-direction:column; gap:12px;
+    }
+    header{ padding:14px clamp(14px,3vw,24px) 0; display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; }
+    h1{margin:0; font-size:clamp(18px,2.4vw,22px); letter-spacing:.2px}
+    .controls{display:flex; gap:10px; align-items:center; flex-wrap:wrap}
+    .btn{
+      appearance:none; border:0; outline:0; cursor:pointer;
+      padding:10px 14px; border-radius:14px;
+      background:linear-gradient(180deg,#1a2440,#131d35);
+      color:var(--ink); font-weight:600;
+      display:inline-flex; align-items:center; gap:10px;
+      box-shadow: 0 1px 0 rgba(255,255,255,.05) inset, 0 10px 30px rgba(0,0,0,.25);
+    }
+    .btn:focus-visible{ box-shadow: var(--ring); }
+    .chip{ display:inline-flex; align-items:center; justify-content:center; width:34px; height:34px; border-radius:10px; background:#0f1628; }
+    .chip img{ width:26px; height:26px; display:block; object-fit:contain }
+    .hint{ color:var(--muted); font-size:14px }
+    .wrap{ position:relative; flex:1; margin:0 clamp(14px,3vw,24px) clamp(14px,3vw,24px); border-radius:20px; overflow:hidden; border:1px solid #1c2742 }
+    #map{ width:100%; height:100%; }
+
+    /* Palette */
+    .palette{
+      position:absolute; z-index:1000; margin-top:8px;
+      background:var(--panel); border:1px solid #24304d; border-radius:16px;
+      padding:10px; width:min(520px, 92vw); display:none; box-shadow: 0 12px 40px rgba(0,0,0,.4);
+    }
+    .palette.open{ display:block; }
+    .grid{ display:grid; grid-template-columns: repeat(7, 1fr); gap:10px; }
+    .tile{
+      background:#0f1628; border:1px solid #223150; border-radius:12px;
+      height:60px; display:flex; align-items:center; justify-content:center;
+      cursor:pointer; transition: transform .06s ease; user-select:none; padding:6px;
+    }
+    .tile:hover{ transform: translateY(-1px) scale(1.03); }
+    .tile:active{ transform: translateY(0) scale(.98); }
+    .tile img{ max-width:100%; max-height:100%; object-fit:contain; display:block; }
+
+    /* Leaflet UI tweaks */
+    .leaflet-control { filter: drop-shadow(0 4px 16px rgba(0,0,0,.35)); }
+    .leaflet-control-geocoder { max-width: 360px; }
+    .leaflet-control-geocoder-form input { border-radius: 10px !important; }
+
+    /* Sticker DivIcon (image) */
+    .sticker-wrapper{ background:transparent; border:none; }
+    .sticker-img{ width:56px; height:56px; object-fit:contain; filter: drop-shadow(0 2px 4px rgba(0,0,0,.45)); }
+
+    /* Name label (permanent tooltip) */
+    .leaflet-tooltip.name-label{
+      background:linear-gradient(180deg,#162445,#0f1c36); color:#eaf3ff; border:1px solid #223150;
+      border-radius:999px; padding:6px 10px; font-weight:700; white-space:nowrap; font-size:14px;
+      box-shadow: 0 10px 20px rgba(0,0,0,.28);
+    }
+
+    .toolbar{ position:absolute; right:14px; top:14px; z-index:1001; display:flex; gap:10px; }
+    .small{ padding:8px 12px; border-radius:12px; font-size:14px; background:#0f1628; border:1px solid #223150; color:var(--ink); cursor:pointer; }
+    .small:focus-visible{ box-shadow: var(--ring); outline:0 }
+    .ghost{ background:transparent }
+
+    @media (max-width:660px){ .grid{ grid-template-columns: repeat(4, 1fr); } }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>🌍 Octo Lives There — Real Map (Image Stickers + Auto Snapshot)</h1>
+    <div class="controls">
+      <div style="position:relative">
+        <button id="stickerBtn" class="btn" type="button" aria-expanded="false" aria-controls="palette">
+          <span class="chip" id="currentChip" aria-hidden="true"><img src="1 (1).png" alt=""></span>
+          <span>Image</span>
+        </button>
+        <div id="palette" class="palette" role="dialog" aria-label="Choose a sticker image">
+          <div class="grid" id="imgGrid" aria-live="polite"></div>
+        </div>
+      </div>
+      <button id="locateBtn" class="btn" type="button" title="Go to my location">📍 Locate me</button>
+      <span class="hint">Pick an image, click the map, type a name → it shows “NAME + octo lives there” and downloads a snapshot.</span>
+    </div>
+  </header>
+
+  <div class="wrap">
+    <div class="toolbar">
+      <button id="resetBtn" class="small" type="button" title="Remove all markers">Reset</button>
+      <button id="helpBtn" class="small ghost" type="button" title="How to use">Help</button>
+    </div>
+    <div id="map" aria-label="Interactive real-world street map"></div>
+  </div>
+
+  <dialog id="helpDialog">
+    <form method="dialog" style="max-width:560px">
+      <p><strong>How it works</strong></p>
+      <ol>
+        <li>Click <em>Image</em> to open your image palette and select one.</li>
+        <li>Click anywhere on the map (or search an address and place one there).</li>
+        <li>Type a name and click <em>Add</em> → it places the label and automatically downloads a snapshot centered on that marker.</li>
+        <li>Drag stickers to adjust. Use <em>Reset</em> to clear all.</li>
+      </ol>
+      <div style="margin-top:10px; text-align:right">
+        <button class="small" value="ok" autofocus>Got it</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Leaflet & Geocoder JS -->
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://unpkg.com/leaflet-control-geocoder/dist/Control.Geocoder.js"></script>
+
+  <script>
+    // ===== GLOBAL: prevent any accidental full-page form submits inside the app
+    document.addEventListener('submit', (e) => e.preventDefault(), true);
+
+    // ===== Sticker images you provided (relative paths)
+    const STICKERS = [
+      "1 (1).png","1 (2).png","1 (3).png","1 (4).png","1 (5).png","1 (6).png","1 (7).png"
+    ];
+
+    // UI elements
+    const paletteEl = document.getElementById('palette');
+    const stickerBtn = document.getElementById('stickerBtn');
+    const imgGrid = document.getElementById('imgGrid');
+    const currentChip = document.getElementById('currentChip');
+    const resetBtn = document.getElementById('resetBtn');
+    const helpBtn = document.getElementById('helpBtn');
+    const helpDialog = document.getElementById('helpDialog');
+    const locateBtn = document.getElementById('locateBtn');
+    const mapEl = document.getElementById('map');
+
+    // Build palette with your images
+    let currentSticker = STICKERS[0];
+    STICKERS.forEach(src => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'tile';
+      b.title = src;
+      b.innerHTML = `<img src="${src}" alt="">`;
+      b.addEventListener('click', () => {
+        currentSticker = src;
+        currentChip.innerHTML = `<img src="${src}" alt="">`;
+        paletteEl.classList.remove('open');
+        stickerBtn.setAttribute('aria-expanded', 'false');
+      });
+      imgGrid.appendChild(b);
+    });
+
+    stickerBtn.addEventListener('click', () => {
+      const open = !paletteEl.classList.contains('open');
+      document.querySelectorAll('.palette.open').forEach(p => p.classList.remove('open'));
+      paletteEl.classList.toggle('open', open);
+      stickerBtn.setAttribute('aria-expanded', String(open));
+    });
+    document.addEventListener('click', (e) => {
+      if (!paletteEl.contains(e.target) && !stickerBtn.contains(e.target)) {
+        paletteEl.classList.remove('open');
+        stickerBtn.setAttribute('aria-expanded', 'false');
+      }
+    });
+    helpBtn.addEventListener('click', () => {
+      if (typeof helpDialog.showModal === 'function') helpDialog.showModal();
+      else alert('1) Choose an image\n2) Click map or search address\n3) Type a name and click Add — it will download a snapshot.');
+    });
+
+    // ===== Leaflet Map
+    const map = L.map('map', { zoomControl: true }).setView([20, 0], 2);
+
+    // Use a tile source that supports CORS so snapshots work.
+    // Carto Voyager tiles (CORS-enabled)
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      crossOrigin: true,
+      attribution:
+        '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> ' +
+        'contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
+    }).addTo(map);
+
+    // Geocoder (Nominatim via leaflet-control-geocoder)
+    const geocoder = L.Control.geocoder({ defaultMarkGeocode: false, placeholder: 'Search an address…' })
+      .on('markgeocode', function(e) {
+        const center = e.geocode.center;
+        const bbox = e.geocode.bbox;
+        if (bbox) map.fitBounds(bbox.pad(0.02)); else map.setView(center, 17);
+        createStickerMarker(center, currentSticker, true);
+      })
+      .addTo(map);
+
+    const markers = new Set();
+    const sanitize = s => s.replace(/[<>]/g, '');
+
+    // Build a Leaflet DivIcon that uses your image
+    function stickerIcon(src) {
+      return L.divIcon({
+        className: 'sticker-wrapper',
+        html: `<img class="sticker-img" src="${src}" alt="">`,
+        iconSize: [56, 56],
+        iconAnchor: [28, 56] // bottom center
+      });
+    }
+
+    // Create marker with popup. On Add: bind label + download snapshot centered on this marker.
+    function createStickerMarker(latlng, src, openPopup = true) {
+      const m = L.marker(latlng, { draggable: true, icon: stickerIcon(src) }).addTo(map);
+      markers.add(m);
+
+      const id = 'm' + Math.random().toString(36).slice(2);
+      const popupHtml = `
+        <form class="name-form" data-id="${id}" style="display:flex;gap:6px;align-items:center;background:#0f1628;border:1px solid #223150;border-radius:12px;padding:6px;">
+          <input placeholder="Type a name…" required maxlength="40"
+                 style="background:transparent;border:0;outline:0;color:#e7eefc;padding:6px 8px;width:200px">
+          <button type="button" class="add" style="background:#1b2a4b;color:#e7eefc;border:1px solid #2c3b64;border-radius:10px;padding:6px 10px;font-weight:600;cursor:pointer">Add</button>
+          <button type="button" class="del" style="background:#2a3759;border:1px solid #3b4b75;color:#cfe0ff;border-radius:10px;padding:6px 10px;cursor:pointer">Delete</button>
+        </form>
+      `;
+      m.bindPopup(popupHtml, { closeOnClick:false, autoClose:false, className:'octo-popup' });
+      if (openPopup) m.openPopup();
+
+      m.on('popupopen', (ev) => {
+        const el = ev.popup.getElement();
+        const form = el.querySelector(`form[data-id="${id}"]`);
+        const input = form.querySelector('input');
+        const addBtn = form.querySelector('.add');
+        const delBtn = form.querySelector('.del');
+        if (input) input.focus();
+
+        // Add handler: set label then make & download a snapshot
+        addBtn.addEventListener('click', async () => {
+          const raw = input.value.trim();
+          if (!raw) return;
+          const name = sanitize(raw);
+
+          // 1) Bind/Update label (permanent tooltip)
+          m.bindTooltip(`${name} + octo lives there`, {
+            permanent: true, direction: 'top', offset: [0, -8], className: 'name-label'
+          }).openTooltip();
+          m.closePopup();
+
+          // 2) Small delay so the label renders in the DOM before snapshot
+          await new Promise(r => setTimeout(r, 50));
+
+          // 3) Render the whole map to a canvas (via html-to-image)
+          //    Note: we use a higher pixel ratio for sharper crops.
+          let canvas;
+          try {
+            canvas = await htmlToImage.toCanvas(mapEl, { pixelRatio: 2, cacheBust: true });
+          } catch (err) {
+            alert('Could not capture the map (CORS or browser security blocked it). Try using a different browser or hosting these files over HTTPS.');
+            return;
+          }
+
+          // 4) Crop around the marker position
+          const pt = map.latLngToContainerPoint(m.getLatLng()); // x,y inside #map
+          const cropSize = 500; // px; square crop
+          const half = cropSize / 2;
+
+          // Compute crop rectangle, clamped to canvas bounds
+          const sx = Math.max(0, Math.min(canvas.width - cropSize, Math.round(pt.x * 2 - half))); // *2 because pixelRatio=2
+          const sy = Math.max(0, Math.min(canvas.height - cropSize, Math.round(pt.y * 2 - half)));
+
+          const out = document.createElement('canvas');
+          out.width = cropSize; out.height = cropSize;
+          const ctx = out.getContext('2d');
+          ctx.drawImage(canvas, sx, sy, cropSize, cropSize, 0, 0, cropSize, cropSize);
+
+          // 5) Download
+          const link = document.createElement('a');
+          link.download = `${name.replace(/\s+/g,'_')}_octo_lives_there.png`;
+          link.href = out.toDataURL('image/png');
+          document.body.appendChild(link);
+          link.click();
+          link.remove();
+        });
+
+        // Enter key = Add
+        input.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            addBtn.click();
+          }
+        });
+
+        // Delete marker
+        delBtn.addEventListener('click', () => {
+          map.removeLayer(m);
+          markers.delete(m);
+        });
+      });
+
+      // Avoid extra placements when clicking marker
+      m.on('click', (e) => e.originalEvent && e.originalEvent.stopPropagation());
+      return m;
+    }
+
+    // Click to place
+    map.on('click', (e) => {
+      createStickerMarker(e.latlng, currentSticker, true);
+    });
+
+    // Reset all
+    resetBtn.addEventListener('click', () => {
+      markers.forEach(m => map.removeLayer(m));
+      markers.clear();
+    });
+
+    // Locate me
+    locateBtn.addEventListener('click', () => {
+      if (!navigator.geolocation) { alert('Geolocation is not supported on this device/browser.'); return; }
+      navigator.geolocation.getCurrentPosition((pos) => {
+        const { latitude, longitude } = pos.coords;
+        const ll = L.latLng(latitude, longitude);
+        map.setView(ll, 16);
+        createStickerMarker(ll, currentSticker, true);
+      }, (err) => {
+        alert('Unable to get your location: ' + (err && err.message ? err.message : 'Unknown error'));
+      }, { enableHighAccuracy:true, timeout:10000, maximumAge:30000 });
+    });
+  </script>
+
+  <!-- Attribution is shown on the map UI -->
+</body>
+</html>
