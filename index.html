@@ -72,7 +72,7 @@
     .sticker-wrapper{background:transparent;border:none}
     .sticker-img{width:56px;height:56px;object-fit:contain;filter:drop-shadow(0 2px 4px rgba(0,0,0,.45))}
 
-    /* Popup pill styling for the name text (shown on click only) */
+    /* Popup pill styling for the label (click to follow link) */
     .leaflet-popup.name-popup .leaflet-popup-content-wrapper{
       background:linear-gradient(180deg,#162445,#0f1c36);
       color:#eaf3ff;border:1px solid #223150;border-radius:999px;
@@ -80,6 +80,8 @@
     }
     .leaflet-popup.name-popup .leaflet-popup-content{margin:8px 12px;font-weight:700;white-space:nowrap;font-size:14px}
     .leaflet-popup.name-popup .leaflet-popup-tip{background:#162445;border:1px solid #223150}
+    .name-link{ color:#eaf3ff; text-decoration:none; display:inline-block; }
+    .name-link:hover{ text-decoration:underline; }
 
     /* Map controls */
     .toolbar{
@@ -152,8 +154,8 @@
       <p><strong>How it works</strong></p>
       <ol>
         <li>Choose an image, then click the map (on land).</li>
-        <li>Type a name and press <em>Enter</em> or click <em>Add</em>.</li>
-        <li>Your label shows as “NAME + octo lives in CITY” (only when you click a marker) and is saved for everyone. One pin per device.</li>
+        <li><strong>Enter your X handle</strong> (e.g., <code>@real_intern</code> or <code>real_intern</code>), then press <em>Enter</em> or click <em>Add</em>.</li>
+        <li>The label shows <code>real_intern + octo lives in CITY</code>. Clicking that label opens <code>https://x.com/real_intern</code> in a new tab.</li>
       </ol>
       <div style="margin-top:10px; text-align:right">
         <button class="small" value="ok" type="submit" autofocus>Got it</button>
@@ -173,7 +175,7 @@
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.4/firebase-app.js";
     import {
-      getFirestore, doc, setDoc, getDoc, getDocs, deleteDoc, collection, onSnapshot, serverTimestamp, writeBatch
+      getFirestore, doc, setDoc, getDoc, getDocs, collection, onSnapshot, serverTimestamp, writeBatch
     } from "https://www.gstatic.com/firebasejs/10.12.4/firebase-firestore.js";
     import {
       getAuth, signInAnonymously, onAuthStateChanged, signInWithEmailAndPassword, signOut
@@ -200,7 +202,7 @@
       setTimeout(()=>banner.classList.remove('show'), 2600);
     }
 
-    // Only block submits for our name form (so geocoder & dialog still work)
+    // Only block submits for our inline name/handle form
     document.addEventListener('submit', (e) => {
       const t = e.target;
       if (t && t.classList && t.classList.contains('name-form')) e.preventDefault();
@@ -246,7 +248,7 @@
     });
     helpBtnHeader.addEventListener('click', () => {
       if (typeof helpDialog.showModal === 'function') helpDialog.showModal();
-      else alert('Choose image → click map (on land) → type a name → Add.');
+      else alert('Choose image → click map (on land) → enter your X handle → Add.');
     });
 
     /* ---------- Map (one world only) ---------- */
@@ -272,11 +274,10 @@
       if (!res.ok) throw new Error('Failed to fetch land topojson');
       const topoData = await res.json();
       const landFeature = window.topojson.feature(topoData, topoData.objects.land);
-      // Return Geometry or Feature; our checker accepts both
-      return landFeature;
+      return landFeature; // Feature or Geometry accepted by checker
     }
 
-    // Robust land check with reverse-geocode fallback (fixes coastal misses)
+    // Robust land check with reverse-geocode fallback (handles coasts)
     function pointInLandGeometry(geom, latlng){
       if (!geom) return false;
       if (latlng.lat < -60) return false; // Antarctica guard
@@ -341,6 +342,21 @@
       }catch{ return 'this area'; }
     }
 
+    /* ---------- X handle utilities ---------- */
+    function extractHandle(raw){
+      if (!raw) return null;
+      let h = String(raw).trim();
+      // Allow a pasted profile URL
+      h = h.replace(/^https?:\/\/(www\.)?x\.com\//i,'');
+      // Strip leading @
+      h = h.replace(/^@/,'');
+      // Keep only the segment before any /?#…
+      h = h.split(/[/?#]/)[0];
+      // Validate: letters, numbers, underscores. (X is case-insensitive; display as typed)
+      if (!/^[A-Za-z0-9_]{1,30}$/.test(h)) return null;
+      return h;
+    }
+
     /* ---------- Sticker & label helpers ---------- */
     function stickerIcon(src) {
       return L.divIcon({
@@ -351,9 +367,18 @@
       });
     }
 
-    // Label shows only when clicking the marker (popup pill)
+    // Label shows only when clicking the marker (popup pill). If handle provided, make it a link to X.
     function setMarkerLabel(marker, text){
       marker.bindPopup(`<div>${text}</div>`, {
+        closeButton:false,
+        autoClose:true,
+        className:'name-popup'
+      });
+    }
+    function setMarkerLabelWithLink(marker, handle, cityText){
+      const url = `https://x.com/${encodeURIComponent(handle)}`;
+      const html = `<a class="name-link" href="${url}" target="_blank" rel="noopener noreferrer">${handle} + octo lives in ${cityText}</a>`;
+      marker.bindPopup(`<div>${html}</div>`, {
         closeButton:false,
         autoClose:true,
         className:'name-popup'
@@ -371,8 +396,8 @@
       const id = 'm' + Math.random().toString(36).slice(2);
       const popupHtml = `
         <form class="name-form" data-id="${id}" style="display:flex;gap:6px;align-items:center;background:#0f1628;border:1px solid #223150;border-radius:12px;padding:6px;">
-          <input placeholder="Type a name…" required maxlength="40"
-                 style="background:transparent;border:0;outline:0;color:#e7eefc;padding:6px 8px;width:220px">
+          <input placeholder="Enter your X handle (e.g. @real_intern)" required maxlength="40"
+                 style="background:transparent;border:0;outline:0;color:#e7eefc;padding:6px 8px;width:260px">
           <button type="button" class="add" style="background:#1b2a4b;color:#e7eefc;border:1px solid #2c3b64;border-radius:10px;padding:6px 10px;font-weight:600;cursor:pointer">Add</button>
           <button type="button" class="del" style="background:#2a3759;border:1px solid #3b4b75;color:#cfe0ff;border-radius:10px;padding:6px 10px;cursor:pointer">Delete</button>
         </form>
@@ -399,27 +424,36 @@
           if (alreadySaved && !replacing) { showBanner("You already added your location from this device 💙"); return; }
 
           const raw = input.value.trim(); if (!raw) return;
-          const name = sanitize(raw);
+          const parsedHandle = extractHandle(raw);
+          if (!parsedHandle) {
+            showBanner("Please enter a valid X handle (letters, numbers, underscores).");
+            return;
+          }
+          const displayHandle = parsedHandle; // shown without @, as requested
 
-          // Close form popup; set click-popup label (don't open it)
+          // Close input popup; set click-popup label with link (city resolving…)
           m.closePopup();
-          setMarkerLabel(m, `${name} + octo lives in …`);
+          setMarkerLabelWithLink(m, displayHandle, '…');
 
-          // Get city and update the label (still only shows on click)
+          // Get city and update
           const city = await getCityName(m.getLatLng());
-          setMarkerLabel(m, `${name} + octo lives in ${city}`);
+          setMarkerLabelWithLink(m, displayHandle, city);
 
-          // Save to Firestore (replace/overwrite always allowed for your uid)
+          // Save to Firestore (store handle + compatibility name field)
           const { lat, lng } = m.getLatLng();
           try {
-            await saveMarkerToFirestore({ name, city, lat, lng, sticker: currentSticker });
+            await saveMarkerToFirestore({
+              handle: displayHandle,
+              name: displayHandle,   // legacy compatibility
+              city, lat, lng, sticker: currentSticker
+            });
             map.removeLayer(m); markers.delete(m);  // server will re-render official marker
           } catch (e) {
             console.error('Save failed:', e);
             showBanner("Save failed: " + (e?.message || "Unknown error"));
             map.removeLayer(m); markers.delete(m);
           } finally {
-            replacing = false; // exit replace mode either way
+            replacing = false;
           }
         };
 
@@ -448,16 +482,25 @@
       // remove old if re-added/modified
       const existing = serverMarkers.get(id);
       if (existing) { map.removeLayer(existing); serverMarkers.delete(id); }
+
       const m = L.marker([rec.lat, rec.lng], { draggable:false, icon:stickerIcon(rec.sticker) }).addTo(map);
-      setMarkerLabel(m, `${rec.name} + octo lives in ${rec.city || 'this area'}`); // click to view
+
+      // Prefer handle; fall back to legacy name (no link if no handle)
+      if (rec.handle) {
+        setMarkerLabelWithLink(m, rec.handle, rec.city || 'this area');
+      } else if (rec.name) {
+        setMarkerLabel(m, `${rec.name} + octo lives in ${rec.city || 'this area'}`);
+      } else {
+        setMarkerLabel(m, `octo lives in ${rec.city || 'this area'}`);
+      }
+
       serverMarkers.set(id, m);
     }
 
-    async function saveMarkerToFirestore({ name, city, lat, lng, sticker }){
+    async function saveMarkerToFirestore({ handle, name, city, lat, lng, sticker }){
       if (!myUid) throw new Error('not signed in yet');
-      // create OR overwrite your doc
       await setDoc(doc(db, 'markers', myUid), {
-        name, city, lat, lng, sticker, createdAt: serverTimestamp()
+        handle, name, city, lat, lng, sticker, createdAt: serverTimestamp()
       }, { merge: true });
       alreadySaved = true;
     }
@@ -552,7 +595,7 @@
 
     replaceBtn.addEventListener('click', () => {
       replacing = true;
-      showBanner("Replace mode: click the map (on land), enter your name, then Add.");
+      showBanner("Replace mode: click the map (on land), enter your X handle, then Add.");
     });
 
     // --- Admin sign-in/out & GLOBAL RESET ---
