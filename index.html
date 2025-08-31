@@ -81,12 +81,13 @@
     .leaflet-popup.name-popup .leaflet-popup-content{margin:8px 12px;font-weight:700;white-space:nowrap;font-size:14px}
     .leaflet-popup.name-popup .leaflet-popup-tip{background:#162445;border:1px solid #223150}
 
-    /* Reset moved to bottom-left of map */
+    /* Map controls */
     .toolbar{
-      position:absolute;left:14px;bottom:14px;z-index:1001;display:flex;gap:10px
+      position:absolute;left:14px;bottom:14px;z-index:1001;display:flex;gap:10px;flex-wrap:wrap
     }
     .small{padding:8px 12px;border-radius:12px;font-size:14px;background:#0f1628;border:1px solid #223150;color:var(--ink);cursor:pointer}
-    .small:focus-visible{box-shadow:var(--ring);outline:0}
+    .small.alt{background:#1d2a4a;border-color:#35507e}
+    .small.warn{background:#5a1e1e;border-color:#a13c3c}
 
     @media (max-width:900px){
       header{gap:8px}
@@ -109,7 +110,7 @@
   <header>
     <!-- Title first (left) -->
     <h1 class="title">
-      <img src="octo.png" alt="Octo" class="logo-img">
+      <img src="octo.svg" alt="Octo" class="logo-img">
       Octo Shared Map
     </h1>
 
@@ -133,9 +134,12 @@
   </header>
 
   <div class="wrap">
-    <!-- Reset bottom-left of the map -->
+    <!-- Bottom-left tools -->
     <div class="toolbar">
       <button id="resetBtn" class="small" type="button">Reset (local only)</button>
+      <button id="replaceBtn" class="small alt" type="button" title="Replace your pin">Replace my pin</button>
+      <button id="adminBtn" class="small alt" type="button" title="Admin sign-in/out">Admin</button>
+      <button id="wipeBtn" class="small warn" type="button" style="display:none" title="Delete ALL pins">Global reset</button>
     </div>
     <div id="map" aria-label="Interactive real-world street map"></div>
   </div>
@@ -168,16 +172,22 @@
   <!-- Firebase (modular SDK via CDN) -->
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.4/firebase-app.js";
-    import { getFirestore, doc, setDoc, onSnapshot, collection, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.12.4/firebase-firestore.js";
-    import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.4/firebase-auth.js";
+    import {
+      getFirestore, doc, setDoc, getDoc, getDocs, deleteDoc, collection, onSnapshot, serverTimestamp, writeBatch
+    } from "https://www.gstatic.com/firebasejs/10.12.4/firebase-firestore.js";
+    import {
+      getAuth, signInAnonymously, onAuthStateChanged, signInWithEmailAndPassword, signOut
+    } from "https://www.gstatic.com/firebasejs/10.12.4/firebase-auth.js";
 
-    // ======== Firebase config (yours) ========
+    /* ================= Firebase config (yours) ================= */
     const firebaseConfig = {
       apiKey:     "AIzaSyA3iDfLssQf7vbafMP1zEb1xnixhvKIM60",
       authDomain: "octo-map-d9c71.firebaseapp.com",
       projectId:  "octo-map-d9c71",
     };
-    // =========================================
+    /* === set your admin UID here (from Firebase Console > Authentication) === */
+    const ADMIN_UID = "tX5IMFy1xkfaik9qgAl3ea0yW7z1";  // <-- YOUR ADMIN UID
+    /* ========================================================== */
 
     // DOM helpers
     const $ = (s) => document.querySelector(s);
@@ -202,6 +212,9 @@
     const imgGrid = $('#imgGrid');
     const currentChip = $('#currentChip');
     const resetBtn = $('#resetBtn');
+    const replaceBtn = $('#replaceBtn');
+    const adminBtn = $('#adminBtn');
+    const wipeBtn = $('#wipeBtn');
     const helpDialog = $('#helpDialog');
     const locateBtn = $('#locateBtn');
     const helpBtnHeader = $('#helpBtnHeader');
@@ -236,8 +249,8 @@
       else alert('Choose image → click map (on land) → type a name → Add.');
     });
 
-    /* ---------- Map ---------- */
-    const worldBounds = L.latLngBounds([-85, -180], [85, 180]); // one world only
+    /* ---------- Map (one world only) ---------- */
+    const worldBounds = L.latLngBounds([-85, -180], [85, 180]);
 
     const map = L.map('map', {
       zoomControl: true,
@@ -253,28 +266,58 @@
     }).addTo(map);
 
     /* ---------- Land mask (TopoJSON + Turf) ---------- */
-    const topoClient = window.topojson;
-    const turfLib = window.turf;
-
     async function loadLandGeometry(){
       const landTopoUrl = 'https://unpkg.com/world-atlas@2/land-110m.json';
       const res = await fetch(landTopoUrl);
       if (!res.ok) throw new Error('Failed to fetch land topojson');
       const topoData = await res.json();
-      const landFeature = topoClient.feature(topoData, topoData.objects.land);
-      return (landFeature.type === 'Feature') ? landFeature.geometry : landFeature; // Polygon/MultiPolygon geometry
+      const landFeature = window.topojson.feature(topoData, topoData.objects.land);
+      // Return Geometry or Feature; our checker accepts both
+      return landFeature;
     }
 
-    function pointIsOnLand(geom, latlng){
+    // Robust land check with reverse-geocode fallback (fixes coastal misses)
+    function pointInLandGeometry(geom, latlng){
       if (!geom) return false;
       if (latlng.lat < -60) return false; // Antarctica guard
       try{
-        const pt = turfLib.point([latlng.lng, latlng.lat]); // [lon, lat]
-        return turfLib.booleanPointInPolygon(pt, geom);
+        const pt = window.turf.point([latlng.lng, latlng.lat]); // [lon, lat]
+        const feature = (geom.type === 'Feature') ? geom : { type:'Feature', properties:{}, geometry: geom };
+        return window.turf.booleanPointInPolygon(pt, feature, { ignoreBoundary:false });
       }catch{ return false; }
     }
+    const landDecisionCache = new Map();
+    async function isLandSmart(geom, latlng){
+      const key = `${Math.round(latlng.lat*10000)},${Math.round(latlng.lng*10000)}`;
+      if (landDecisionCache.has(key)) return landDecisionCache.get(key);
 
-    // Reverse geocode ONLY for city label
+      let ok = pointInLandGeometry(geom, latlng);
+
+      if (!ok) {
+        try {
+          const url = new URL('https://nominatim.openstreetmap.org/reverse');
+          url.searchParams.set('format','jsonv2');
+          url.searchParams.set('lat', latlng.lat);
+          url.searchParams.set('lon', latlng.lng);
+          url.searchParams.set('zoom','10');
+          url.searchParams.set('addressdetails','1');
+          const resp = await fetch(url.toString(), { headers: { 'Accept-Language': navigator.language || 'en' }});
+          const data = await resp.json();
+          const a = data?.address || {};
+          const text = (data?.display_name || '').toLowerCase();
+          const looksWater = /ocean|sea|gulf|bay|lake|reservoir|strait|channel/.test(text) ||
+                             /ocean|sea|gulf|bay|lake|reservoir|strait|channel/.test(
+                               Object.values(a).join(' ').toLowerCase()
+                             );
+          ok = !!a.country && !looksWater && latlng.lat > -60;
+        } catch { ok = false; }
+      }
+
+      landDecisionCache.set(key, ok);
+      return ok;
+    }
+
+    // Reverse geocode for the city label
     const reverseCache = new Map();
     function roundCoord(n){ return Math.round(n * 10000) / 10000; }
     function cacheKey(ll){ return `${roundCoord(ll.lat)},${roundCoord(ll.lng)}`; }
@@ -315,7 +358,6 @@
         autoClose:true,
         className:'name-popup'
       });
-      // do not open automatically
     }
 
     const sanitize = s => s.replace(/[<>]/g, '');
@@ -354,7 +396,7 @@
         if (input) input.focus();
 
         const addAction = async () => {
-          if (alreadySaved) { showBanner("You already added your location from this device 💙"); return; }
+          if (alreadySaved && !replacing) { showBanner("You already added your location from this device 💙"); return; }
 
           const raw = input.value.trim(); if (!raw) return;
           const name = sanitize(raw);
@@ -367,20 +409,23 @@
           const city = await getCityName(m.getLatLng());
           setMarkerLabel(m, `${name} + octo lives in ${city}`);
 
-          // Save to Firestore
+          // Save to Firestore (replace/overwrite always allowed for your uid)
           const { lat, lng } = m.getLatLng();
           try {
             await saveMarkerToFirestore({ name, city, lat, lng, sticker: currentSticker });
             map.removeLayer(m); markers.delete(m);  // server will re-render official marker
           } catch (e) {
+            console.error('Save failed:', e);
+            showBanner("Save failed: " + (e?.message || "Unknown error"));
             map.removeLayer(m); markers.delete(m);
-            showBanner("You already added your location from this device 💙");
+          } finally {
+            replacing = false; // exit replace mode either way
           }
         };
 
         addBtn.addEventListener('click', addAction, { once:true });
         input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); addAction(); } });
-        delBtn.addEventListener('click', () => { map.removeLayer(m); markers.delete(m); });
+        delBtn.addEventListener('click', () => { map.removeLayer(m); markers.delete(m); replacing = false; });
       });
 
       // Keep clicks from bubbling
@@ -389,16 +434,20 @@
       return m;
     }
 
-    /* ---------- Firebase (one pin per device) ---------- */
+    /* ---------- Firebase (one pin per device; replaceable) ---------- */
     const app  = initializeApp(firebaseConfig);
     const db   = getFirestore(app);
     const auth = getAuth(app);
 
     let myUid = null;
     let alreadySaved = false;
+    let replacing = false;
+    let isAdmin = false;
 
     function drawServerMarker(id, rec){
-      if (serverMarkers.has(id)) return;
+      // remove old if re-added/modified
+      const existing = serverMarkers.get(id);
+      if (existing) { map.removeLayer(existing); serverMarkers.delete(id); }
       const m = L.marker([rec.lat, rec.lng], { draggable:false, icon:stickerIcon(rec.sticker) }).addTo(map);
       setMarkerLabel(m, `${rec.name} + octo lives in ${rec.city || 'this area'}`); // click to view
       serverMarkers.set(id, m);
@@ -406,24 +455,47 @@
 
     async function saveMarkerToFirestore({ name, city, lat, lng, sticker }){
       if (!myUid) throw new Error('not signed in yet');
+      // create OR overwrite your doc
       await setDoc(doc(db, 'markers', myUid), {
         name, city, lat, lng, sticker, createdAt: serverTimestamp()
-      }, { merge:false });
+      }, { merge: true });
       alreadySaved = true;
     }
     window.saveMarkerToFirestore = saveMarkerToFirestore;
 
+    function updateAdminUI() {
+      wipeBtn.style.display = isAdmin ? 'inline-flex' : 'none';
+      adminBtn.textContent = isAdmin ? 'Admin (signed in)' : 'Admin';
+    }
+
+    async function refreshMyStatus() {
+      if (!myUid) return;
+      const myDoc = await getDoc(doc(db, 'markers', myUid));
+      alreadySaved = myDoc.exists();
+    }
+
+    // anon sign-in and live stream
     signInAnonymously(auth);
-    onAuthStateChanged(auth, (user) => {
+    onAuthStateChanged(auth, async (user) => {
       if (!user) return;
       myUid = user.uid;
+
+      // reflect admin status if you sign in with email/pw
+      isAdmin = (auth.currentUser && auth.currentUser.uid === ADMIN_UID);
+      updateAdminUI();
+
+      await refreshMyStatus();
+
       onSnapshot(collection(db, 'markers'), (snap) => {
         snap.docChanges().forEach(chg => {
-          if (chg.type === 'added') {
-            const id = chg.doc.id;
-            const r = chg.doc.data();
-            drawServerMarker(id, r);
-            if (id === myUid) { alreadySaved = true; }
+          const id = chg.doc.id;
+          if (chg.type === 'added' || chg.type === 'modified') {
+            drawServerMarker(id, chg.doc.data());
+            if (id === myUid) alreadySaved = true;
+          } else if (chg.type === 'removed') {
+            const m = serverMarkers.get(id);
+            if (m) { map.removeLayer(m); serverMarkers.delete(id); }
+            if (id === myUid) alreadySaved = false;
           }
         });
       });
@@ -435,31 +507,31 @@
         const landGeom = await loadLandGeometry();
         loading.classList.add('hidden');
 
-        // Geocoder only after land is ready
+        // Geocoder (async handler to use isLandSmart)
         L.Control.geocoder({ defaultMarkGeocode:false, placeholder:'Search an address…' })
-          .on('markgeocode', (e) => {
+          .on('markgeocode', async (e) => {
             const c = e.geocode.center, b = e.geocode.bbox;
             if (b) map.fitBounds(b.pad(0.02)); else map.setView(c, 17);
-            if (alreadySaved) { showBanner("You already added your location from this device 💙"); return; }
-            if (!pointIsOnLand(landGeom, c)) { showBanner("Please click on land (not ocean/Antarctica)"); return; }
+            if (alreadySaved && !replacing) { showBanner("You already added your location from this device 💙"); return; }
+            if (!(await isLandSmart(landGeom, c))) { showBanner("Please click on land (not ocean/Antarctica)"); return; }
             createStickerMarker(c, currentSticker, true);
           }).addTo(map);
 
-        // Map click after land is ready
-        map.on('click', (e) => {
-          if (alreadySaved) { showBanner("You already added your location from this device 💙"); return; }
-          if (!pointIsOnLand(landGeom, e.latlng)) { showBanner("Please click on land (not ocean/Antarctica)"); return; }
+        // Map click
+        map.on('click', async (e) => {
+          if (alreadySaved && !replacing) { showBanner("You already added your location from this device 💙"); return; }
+          if (!(await isLandSmart(landGeom, e.latlng))) { showBanner("Please click on land (not ocean/Antarctica)"); return; }
           createStickerMarker(e.latlng, currentSticker, true);
         });
 
-        // Locate me after land is ready
+        // Locate me
         locateBtn.addEventListener('click', () => {
           if (!navigator.geolocation) return alert('Geolocation not supported.');
-          navigator.geolocation.getCurrentPosition((pos) => {
+          navigator.geolocation.getCurrentPosition(async (pos) => {
             const ll = L.latLng(pos.coords.latitude, pos.coords.longitude);
             map.setView(ll, 16);
-            if (alreadySaved) { showBanner("You already added your location from this device 💙"); return; }
-            if (!pointIsOnLand(landGeom, ll)) { showBanner("Your location seems over water/Antarctica—place on land."); return; }
+            if (alreadySaved && !replacing) { showBanner("You already added your location from this device 💙"); return; }
+            if (!(await isLandSmart(landGeom, ll))) { showBanner("Your location seems over water/Antarctica—place on land."); return; }
             createStickerMarker(ll, currentSticker, true);
           }, (err) => alert('Unable to get your location: ' + (err?.message || 'Unknown error')),
           { enableHighAccuracy:true, timeout:10000, maximumAge:30000 });
@@ -471,10 +543,67 @@
       }
     })();
 
-    // Local reset
+    // Local reset and replace mode
     resetBtn.addEventListener('click', () => {
       markers.forEach(m => map.removeLayer(m));
       markers.clear();
+      replacing = false;
+    });
+
+    replaceBtn.addEventListener('click', () => {
+      replacing = true;
+      showBanner("Replace mode: click the map (on land), enter your name, then Add.");
+    });
+
+    // --- Admin sign-in/out & GLOBAL RESET ---
+    function updateAdminStateAfterAuth() {
+      isAdmin = (auth.currentUser && auth.currentUser.uid === ADMIN_UID);
+      updateAdminUI();
+    }
+
+    adminBtn.addEventListener('click', async () => {
+      try {
+        if (isAdmin) {
+          await signOut(auth);
+          updateAdminStateAfterAuth();
+          showBanner("Signed out admin.");
+          await signInAnonymously(auth); // keep app running
+          return;
+        }
+        const email = prompt("Admin email:");
+        if (!email) return;
+        const password = prompt("Admin password:");
+        if (!password) return;
+
+        await signInWithEmailAndPassword(auth, email, password);
+        updateAdminStateAfterAuth();
+        showBanner(isAdmin ? "Admin signed in." : "Signed in, but this user is not the configured admin UID.");
+      } catch (e) {
+        console.error(e);
+        showBanner("Admin sign-in failed.");
+      }
+    });
+
+    wipeBtn.addEventListener('click', async () => {
+      if (!isAdmin) return showBanner("Admin only.");
+      if (!confirm("Delete ALL pins for everyone? This cannot be undone.")) return;
+
+      try {
+        const snap = await getDocs(collection(db, 'markers'));
+        let batch = writeBatch(db);
+        let count = 0;
+        snap.forEach((d) => {
+          batch.delete(d.ref);
+          count++;
+          if (count % 400 === 0) { batch.commit(); batch = writeBatch(db); }
+        });
+        await batch.commit();
+        showBanner("All pins deleted.");
+        alreadySaved = false;
+      } catch (e) {
+        console.error(e);
+        showBanner("Global reset failed: " + (e?.message || "Unknown error"));
+      }
     });
   </script>
 </body>
