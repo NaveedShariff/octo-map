@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>Shared Octo Map</title>
+  <title>Octo Shared Map</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
 
   <!-- Leaflet & Geocoder (Open Source) -->
@@ -10,63 +10,113 @@
   <link rel="stylesheet" href="https://unpkg.com/leaflet-control-geocoder/dist/Control.Geocoder.css" />
 
   <style>
-    :root{--bg:#0b1220;--panel:#11192b;--ink:#e7eefc;--muted:#9fb0cf;--ring:0 0 0 3px rgba(122,162,255,.35)}
+    :root{--panel:#11192b;--ink:#e7eefc;--muted:#ffe4d1;--ring:0 0 0 3px rgba(122,162,255,.35)}
     *{box-sizing:border-box} html,body{height:100%}
     body{
       margin:0;height:100%;
-      /* 🔷 Change #1: background image */
-      background: #000 url('background.png') center / cover no-repeat fixed;
+      background:#ef5f00;
       color:var(--ink);
       font:16px/1.45 ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,"Helvetica Neue",Arial,"Apple Color Emoji","Segoe UI Emoji";
       display:flex;flex-direction:column;gap:12px
     }
-    header{padding:14px clamp(14px,3vw,24px) 0;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
-    h1{margin:0;font-size:clamp(18px,2.4vw,22px);display:flex;align-items:center;gap:10px}
-    /* 🔷 Change #2: title image styling */
-    .logo-img{height:1.4em; width:auto; display:inline-block; vertical-align:middle; border-radius:8px}
-    .controls{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
-    .btn{appearance:none;border:0;outline:0;cursor:pointer;padding:10px 14px;border-radius:14px;background:linear-gradient(180deg,#1a2440,#131d35);color:var(--ink);font-weight:600;display:inline-flex;align-items:center;gap:10px;box-shadow:0 1px 0 rgba(255,255,255,.05) inset,0 10px 30px rgba(0,0,0,.25)}
+
+    /* Header: Title (left) -> controls -> spacer -> Help (right) */
+    header{
+      padding:14px clamp(14px,3vw,24px) 0;
+      display:flex;align-items:center;gap:12px;flex-wrap:wrap
+    }
+    .title{margin:0;display:flex;align-items:center;gap:10px;font-size:clamp(18px,2.4vw,24px)}
+    .logo-img{height:48px;width:auto;display:inline-block;vertical-align:middle;border-radius:8px}
+    .left-controls{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+    .spacer{flex:1}
+
+    /* Buttons */
+    .btn{
+      appearance:none;border:0;outline:0;cursor:pointer;
+      padding:12px 16px;border-radius:14px;
+      background:linear-gradient(180deg,#1a2440,#131d35);
+      color:var(--ink);font-weight:700;font-size:16px;line-height:1;
+      display:inline-flex;align-items:center;gap:10px;
+      box-shadow:0 1px 0 rgba(255,255,255,.05) inset,0 10px 30px rgba(0,0,0,.25)
+    }
+    .btn-lg{ padding:14px 18px; font-size:17px; min-height:50px } /* same height for both buttons */
     .btn:focus-visible{box-shadow:var(--ring)}
+
     .chip{display:inline-flex;align-items:center;justify-content:center;width:34px;height:34px;border-radius:10px;background:#0f1628}
     .chip img{width:26px;height:26px;display:block;object-fit:contain}
-    .hint{color:var(--muted);font-size:14px}
-    .wrap{position:relative;flex:1;margin:0 clamp(14px,3vw,24px) clamp(14px,3vw,24px);border-radius:20px;overflow:hidden;border:1px solid #1c2742;background:rgba(0,0,0,.15)}
+
+    /* Map frame with white stroke */
+    .wrap{
+      position:relative;flex:1;
+      margin:0 clamp(14px,3vw,24px) clamp(14px,3vw,24px);
+      border-radius:20px;overflow:hidden;
+      border:3px solid #ffffff; /* white stroke */
+      background:rgba(0,0,0,.15)
+    }
     #map{width:100%;height:100%}
+
+    /* Palette */
     .palette{position:absolute;z-index:1000;margin-top:8px;background:var(--panel);border:1px solid #24304d;border-radius:16px;padding:10px;width:min(520px,92vw);display:none;box-shadow:0 12px 40px rgba(0,0,0,.4)}
     .palette.open{display:block}
     .grid{display:grid;grid-template-columns:repeat(7,1fr);gap:10px}
     .tile{background:#0f1628;border:1px solid #223150;border-radius:12px;height:60px;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:transform .06s ease;user-select:none;padding:6px}
     .tile:hover{transform:translateY(-1px) scale(1.03)} .tile:active{transform:translateY(0) scale(.98)}
     .tile img{max-width:100%;max-height:100%;object-fit:contain;display:block}
+
+    /* Leaflet tweaks */
     .leaflet-control{filter:drop-shadow(0 4px 16px rgba(0,0,0,.35))}
     .leaflet-control-geocoder{max-width:360px}
     .leaflet-control-geocoder-form input{border-radius:10px!important}
+
+    /* Sticker icon */
     .sticker-wrapper{background:transparent;border:none}
     .sticker-img{width:56px;height:56px;object-fit:contain;filter:drop-shadow(0 2px 4px rgba(0,0,0,.45))}
-    .leaflet-tooltip.name-label{
-      background:linear-gradient(180deg,#162445,#0f1c36);color:#e7eefc;border:1px solid #223150;
-      border-radius:999px;padding:6px 10px;font-weight:700;white-space:nowrap;font-size:14px;
+
+    /* Popup pill styling for the name text (shown on click only) */
+    .leaflet-popup.name-popup .leaflet-popup-content-wrapper{
+      background:linear-gradient(180deg,#162445,#0f1c36);
+      color:#eaf3ff;border:1px solid #223150;border-radius:999px;
       box-shadow:0 10px 20px rgba(0,0,0,.28)
     }
-    .toolbar{position:absolute;right:14px;top:14px;z-index:1001;display:flex;gap:10px}
+    .leaflet-popup.name-popup .leaflet-popup-content{margin:8px 12px;font-weight:700;white-space:nowrap;font-size:14px}
+    .leaflet-popup.name-popup .leaflet-popup-tip{background:#162445;border:1px solid #223150}
+
+    /* Reset moved to bottom-left of map */
+    .toolbar{
+      position:absolute;left:14px;bottom:14px;z-index:1001;display:flex;gap:10px
+    }
     .small{padding:8px 12px;border-radius:12px;font-size:14px;background:#0f1628;border:1px solid #223150;color:var(--ink);cursor:pointer}
     .small:focus-visible{box-shadow:var(--ring);outline:0}
-    .ghost{background:transparent}
-    @media (max-width:660px){.grid{grid-template-columns:repeat(4,1fr)}}
+
+    @media (max-width:900px){
+      header{gap:8px}
+      .title{order:1}
+      .left-controls{order:2}
+      .spacer{order:3}
+    }
+
+    /* Banner & loading */
     .banner{position:fixed;left:50%;transform:translateX(-50%);bottom:14px;background:#0f1628;border:1px solid #223150;padding:10px 14px;border-radius:12px;font-size:14px;color:#cfe0ff;z-index:2000;display:none}
     .banner.show{display:block}
+    .loading{
+      position:fixed;inset:0;display:flex;align-items:center;justify-content:center;
+      background:rgba(0,0,0,.35);backdrop-filter:blur(2px);color:#fff;font-weight:700;z-index:3000
+    }
+    .loading.hidden{display:none}
   </style>
 </head>
 <body>
   <header>
-    <h1>
-      <!-- 🔷 Change #2: replace emoji with your image -->
+    <!-- Title first (left) -->
+    <h1 class="title">
       <img src="octo.png" alt="Octo" class="logo-img">
-      Shared Octo Map
+      Octo Shared Map
     </h1>
-    <div class="controls">
+
+    <!-- Then Image + Locate me (same height) -->
+    <div class="left-controls">
       <div style="position:relative">
-        <button id="stickerBtn" class="btn" type="button" aria-expanded="false" aria-controls="palette">
+        <button id="stickerBtn" class="btn btn-lg" type="button" aria-expanded="false" aria-controls="palette">
           <span class="chip" id="currentChip" aria-hidden="true"><img src="1 (1).png" alt=""></span>
           <span>Image</span>
         </button>
@@ -74,31 +124,35 @@
           <div class="grid" id="imgGrid" aria-live="polite"></div>
         </div>
       </div>
-      <button id="locateBtn" class="btn" type="button">📍 Locate me</button>
-      <span class="hint">Pick an image → click map → type a name → Add/Enter closes box and shows “NAME + octo lives in CITY” (public & realtime).</span>
+      <button id="locateBtn" class="btn btn-lg" type="button">📍 Locate me</button>
     </div>
+
+    <!-- Push Help to the right -->
+    <div class="spacer"></div>
+    <button id="helpBtnHeader" class="btn btn-lg" type="button">Help</button>
   </header>
 
   <div class="wrap">
+    <!-- Reset bottom-left of the map -->
     <div class="toolbar">
       <button id="resetBtn" class="small" type="button">Reset (local only)</button>
-      <button id="helpBtn" class="small ghost" type="button">Help</button>
     </div>
     <div id="map" aria-label="Interactive real-world street map"></div>
   </div>
 
-  <div id="banner" class="banner">You already added your location from this device 💙</div>
+  <div id="banner" class="banner"></div>
+  <div id="loading" class="loading">Loading map data…</div>
 
   <dialog id="helpDialog">
     <form method="dialog" style="max-width:560px">
       <p><strong>How it works</strong></p>
       <ol>
-        <li>Choose an image, then click the map.</li>
-        <li>Type a name and press <em>Enter</em> or click <em>Add</em>. The box closes, a label appears, and it’s saved for everyone.</li>
-        <li>Each device can add exactly one location.</li>
+        <li>Choose an image, then click the map (on land).</li>
+        <li>Type a name and press <em>Enter</em> or click <em>Add</em>.</li>
+        <li>Your label shows as “NAME + octo lives in CITY” (only when you click a marker) and is saved for everyone. One pin per device.</li>
       </ol>
       <div style="margin-top:10px; text-align:right">
-        <button class="small" value="ok" autofocus>Got it</button>
+        <button class="small" value="ok" type="submit" autofocus>Got it</button>
       </div>
     </form>
   </dialog>
@@ -106,6 +160,10 @@
   <!-- Leaflet & Geocoder JS -->
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script src="https://unpkg.com/leaflet-control-geocoder/dist/Control.Geocoder.js"></script>
+
+  <!-- Land mask libs (global UMD) -->
+  <script src="https://unpkg.com/topojson-client@3"></script>
+  <script src="https://unpkg.com/@turf/turf@6.5.0/turf.min.js"></script>
 
   <!-- Firebase (modular SDK via CDN) -->
   <script type="module">
@@ -121,21 +179,33 @@
     };
     // =========================================
 
-    // Prevent any accidental page submits
-    document.addEventListener('submit', (e) => e.preventDefault(), true);
+    // DOM helpers
+    const $ = (s) => document.querySelector(s);
+    const banner = $('#banner');
+    const loading = $('#loading');
 
-    // UI elements
-    const paletteEl = document.getElementById('palette');
-    const stickerBtn = document.getElementById('stickerBtn');
-    const imgGrid = document.getElementById('imgGrid');
-    const currentChip = document.getElementById('currentChip');
-    const resetBtn = document.getElementById('resetBtn');
-    const helpBtn = document.getElementById('helpBtn');
-    const helpDialog = document.getElementById('helpDialog');
-    const locateBtn = document.getElementById('locateBtn');
-    const banner = document.getElementById('banner');
+    function showBanner(msg){
+      banner.textContent = msg || "Notice";
+      banner.classList.add('show');
+      setTimeout(()=>banner.classList.remove('show'), 2600);
+    }
 
-    // Stickers
+    // Only block submits for our name form (so geocoder & dialog still work)
+    document.addEventListener('submit', (e) => {
+      const t = e.target;
+      if (t && t.classList && t.classList.contains('name-form')) e.preventDefault();
+    }, true);
+
+    // Controls
+    const paletteEl = $('#palette');
+    const stickerBtn = $('#stickerBtn');
+    const imgGrid = $('#imgGrid');
+    const currentChip = $('#currentChip');
+    const resetBtn = $('#resetBtn');
+    const helpDialog = $('#helpDialog');
+    const locateBtn = $('#locateBtn');
+    const helpBtnHeader = $('#helpBtnHeader');
+
     const STICKERS = ["1 (1).png","1 (2).png","1 (3).png","1 (4).png","1 (5).png","1 (6).png","1 (7).png"];
     let currentSticker = STICKERS[0];
     STICKERS.forEach(src => {
@@ -156,55 +226,55 @@
       paletteEl.classList.toggle('open', open);
       stickerBtn.setAttribute('aria-expanded', String(open));
     });
-    document.addEventListener('click', (e) => { if (!paletteEl.contains(e.target) && !stickerBtn.contains(e.target)) { paletteEl.classList.remove('open'); stickerBtn.setAttribute('aria-expanded','false'); }});
-    helpBtn.addEventListener('click', () => { if (typeof helpDialog.showModal === 'function') helpDialog.showModal(); else alert('Choose image → click map → type a name → Add.'); });
+    document.addEventListener('click', (e) => {
+      if (!paletteEl.contains(e.target) && !stickerBtn.contains(e.target)) {
+        paletteEl.classList.remove('open'); stickerBtn.setAttribute('aria-expanded','false');
+      }
+    });
+    helpBtnHeader.addEventListener('click', () => {
+      if (typeof helpDialog.showModal === 'function') helpDialog.showModal();
+      else alert('Choose image → click map (on land) → type a name → Add.');
+    });
 
-    // 🔷 Change #3: Only one world (no horizontal wrap)
-    const worldBounds = L.latLngBounds([-85, -180], [85, 180]); // clamp near the poles
+    /* ---------- Map ---------- */
+    const worldBounds = L.latLngBounds([-85, -180], [85, 180]); // one world only
 
-    // Leaflet map
     const map = L.map('map', {
       zoomControl: true,
       maxBounds: worldBounds,
-      maxBoundsViscosity: 1.0 // feel "sticky" at the edges, no sliding into another world
+      maxBoundsViscosity: 1.0
     }).setView([20, 0], 2);
 
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{
       maxZoom: 19,
       attribution:'&copy; OpenStreetMap contributors',
-      noWrap: true,     // ✨ stops the world from repeating horizontally
+      noWrap: true,
       bounds: worldBounds
     }).addTo(map);
 
-    // Geocoder (search box)
-    L.Control.geocoder({ defaultMarkGeocode:false, placeholder:'Search an address…' })
-      .on('markgeocode', e => {
-        const c = e.geocode.center, b = e.geocode.bbox;
-        if (b) map.fitBounds(b.pad(0.02)); else map.setView(c, 17);
-        if (alreadySaved) { showOnceBanner(); return; }
-        createStickerMarker(c, currentSticker, true);
-      }).addTo(map);
+    /* ---------- Land mask (TopoJSON + Turf) ---------- */
+    const topoClient = window.topojson;
+    const turfLib = window.turf;
 
-    // Basic helpers
-    const markers = new Set();
-    const serverMarkers = new Map(); // docId -> Leaflet marker (from Firestore)
-    const sanitize = s => s.replace(/[<>]/g, '');
-
-    function stickerIcon(src) {
-      return L.divIcon({
-        className: 'sticker-wrapper',
-        html: `<img class="sticker-img" src="${src}" alt="">`,
-        iconSize: [56, 56],
-        iconAnchor: [28, 56]
-      });
-    }
-    function setMarkerLabel(marker, text){
-      const t = marker.getTooltip();
-      if (t) t.setContent(text);
-      else marker.bindTooltip(text, { permanent:true, direction:'top', offset:[0,-8], className:'name-label' }).openTooltip();
+    async function loadLandGeometry(){
+      const landTopoUrl = 'https://unpkg.com/world-atlas@2/land-110m.json';
+      const res = await fetch(landTopoUrl);
+      if (!res.ok) throw new Error('Failed to fetch land topojson');
+      const topoData = await res.json();
+      const landFeature = topoClient.feature(topoData, topoData.objects.land);
+      return (landFeature.type === 'Feature') ? landFeature.geometry : landFeature; // Polygon/MultiPolygon geometry
     }
 
-    // Reverse geocode (OpenStreetMap Nominatim)
+    function pointIsOnLand(geom, latlng){
+      if (!geom) return false;
+      if (latlng.lat < -60) return false; // Antarctica guard
+      try{
+        const pt = turfLib.point([latlng.lng, latlng.lat]); // [lon, lat]
+        return turfLib.booleanPointInPolygon(pt, geom);
+      }catch{ return false; }
+    }
+
+    // Reverse geocode ONLY for city label
     const reverseCache = new Map();
     function roundCoord(n){ return Math.round(n * 10000) / 10000; }
     function cacheKey(ll){ return `${roundCoord(ll.lat)},${roundCoord(ll.lng)}`; }
@@ -228,7 +298,30 @@
       }catch{ return 'this area'; }
     }
 
-    // Create a LOCAL (temporary) marker with popup
+    /* ---------- Sticker & label helpers ---------- */
+    function stickerIcon(src) {
+      return L.divIcon({
+        className: 'sticker-wrapper',
+        html: `<img class="sticker-img" src="${src}" alt="">`,
+        iconSize: [56, 56],
+        iconAnchor: [28, 56]
+      });
+    }
+
+    // Label shows only when clicking the marker (popup pill)
+    function setMarkerLabel(marker, text){
+      marker.bindPopup(`<div>${text}</div>`, {
+        closeButton:false,
+        autoClose:true,
+        className:'name-popup'
+      });
+      // do not open automatically
+    }
+
+    const sanitize = s => s.replace(/[<>]/g, '');
+    const markers = new Set();
+    const serverMarkers = new Map();
+
     function createStickerMarker(latlng, src, openPopup = true) {
       const m = L.marker(latlng, { draggable:true, icon:stickerIcon(src) }).addTo(map);
       markers.add(m);
@@ -242,7 +335,7 @@
           <button type="button" class="del" style="background:#2a3759;border:1px solid #3b4b75;color:#cfe0ff;border-radius:10px;padding:6px 10px;cursor:pointer">Delete</button>
         </form>
       `;
-      m.bindPopup(popupHtml, { closeOnClick:false, autoClose:false });
+      m.bindPopup(popupHtml, { closeOnClick:false, autoClose:false }); // input form popup
       if (openPopup) m.openPopup();
 
       m.on('popupopen', (ev) => {
@@ -261,28 +354,27 @@
         if (input) input.focus();
 
         const addAction = async () => {
-          if (alreadySaved) { showOnceBanner(); return; }
+          if (alreadySaved) { showBanner("You already added your location from this device 💙"); return; }
+
           const raw = input.value.trim(); if (!raw) return;
           const name = sanitize(raw);
 
-          // Close box immediately & show provisional label
+          // Close form popup; set click-popup label (don't open it)
           m.closePopup();
           setMarkerLabel(m, `${name} + octo lives in …`);
 
-          // Resolve city, update label
+          // Get city and update the label (still only shows on click)
           const city = await getCityName(m.getLatLng());
           setMarkerLabel(m, `${name} + octo lives in ${city}`);
 
-          // Save to Firestore (public, one-per-device)
+          // Save to Firestore
           const { lat, lng } = m.getLatLng();
           try {
             await saveMarkerToFirestore({ name, city, lat, lng, sticker: currentSticker });
-            // After server confirms, remove local temp (server will render the official one)
-            map.removeLayer(m); markers.delete(m);
+            map.removeLayer(m); markers.delete(m);  // server will re-render official marker
           } catch (e) {
-            // Likely already-added; remove temp marker and show banner
             map.removeLayer(m); markers.delete(m);
-            showOnceBanner();
+            showBanner("You already added your location from this device 💙");
           }
         };
 
@@ -291,80 +383,40 @@
         delBtn.addEventListener('click', () => { map.removeLayer(m); markers.delete(m); });
       });
 
-      // Stop map click when interacting
+      // Keep clicks from bubbling
       m.on('click', (e) => { if (e.originalEvent) e.originalEvent.stopPropagation(); });
-
-      // If user drags before saving, update preview text if any
-      m.on('dragend', async () => {
-        const t = m.getTooltip(); if (!t) return;
-        const match = t.getContent().match(/^(.*?) \+ octo lives in/i);
-        const name = match ? match[1] : null; if (!name) return;
-        setMarkerLabel(m, `${name} + octo lives in …`);
-        const city = await getCityName(m.getLatLng());
-        setMarkerLabel(m, `${name} + octo lives in ${city}`);
-      });
 
       return m;
     }
 
-    // Map click to place local marker
-    map.on('click', (e) => {
-      if (alreadySaved) { showOnceBanner(); return; }
-      createStickerMarker(e.latlng, currentSticker, true);
-    });
-
-    resetBtn.addEventListener('click', () => { // local only; server pins stay
-      markers.forEach(m => map.removeLayer(m));
-      markers.clear();
-    });
-
-    locateBtn.addEventListener('click', () => {
-      if (!navigator.geolocation) return alert('Geolocation not supported.');
-      navigator.geolocation.getCurrentPosition((pos) => {
-        const ll = L.latLng(pos.coords.latitude, pos.coords.longitude);
-        map.setView(ll, 16);
-        if (alreadySaved) { showOnceBanner(); return; }
-        createStickerMarker(ll, currentSticker, true);
-      }, (err) => alert('Unable to get your location: ' + (err?.message || 'Unknown error')),
-      { enableHighAccuracy:true, timeout:10000, maximumAge:30000 });
-    });
-
-    // Small helper
-    function showOnceBanner(){ banner.classList.add('show'); setTimeout(()=>banner.classList.remove('show'), 2400); }
-
-    // ======== Firebase boot ========
+    /* ---------- Firebase (one pin per device) ---------- */
     const app  = initializeApp(firebaseConfig);
     const db   = getFirestore(app);
     const auth = getAuth(app);
 
     let myUid = null;
-    let alreadySaved = false; // we flip this if our uid doc exists
+    let alreadySaved = false;
 
-    // realtime: draw everyone's official markers
     function drawServerMarker(id, rec){
-      if (serverMarkers.has(id)) return; // no duplicates
+      if (serverMarkers.has(id)) return;
       const m = L.marker([rec.lat, rec.lng], { draggable:false, icon:stickerIcon(rec.sticker) }).addTo(map);
-      setMarkerLabel(m, `${rec.name} + octo lives in ${rec.city || 'this area'}`);
+      setMarkerLabel(m, `${rec.name} + octo lives in ${rec.city || 'this area'}`); // click to view
       serverMarkers.set(id, m);
     }
 
     async function saveMarkerToFirestore({ name, city, lat, lng, sticker }){
       if (!myUid) throw new Error('not signed in yet');
-      // doc id == my uid; rules enforce "one only"
       await setDoc(doc(db, 'markers', myUid), {
         name, city, lat, lng, sticker, createdAt: serverTimestamp()
       }, { merge:false });
       alreadySaved = true;
     }
-    window.saveMarkerToFirestore = saveMarkerToFirestore; // used in addAction
+    window.saveMarkerToFirestore = saveMarkerToFirestore;
 
-    // sign in anonymously, then subscribe
     signInAnonymously(auth);
     onAuthStateChanged(auth, (user) => {
       if (!user) return;
       myUid = user.uid;
-
-      // Stream all markers (initial + future)
       onSnapshot(collection(db, 'markers'), (snap) => {
         snap.docChanges().forEach(chg => {
           if (chg.type === 'added') {
@@ -375,6 +427,54 @@
           }
         });
       });
+    });
+
+    /* ---------- Enable interactions after land data loads ---------- */
+    (async () => {
+      try {
+        const landGeom = await loadLandGeometry();
+        loading.classList.add('hidden');
+
+        // Geocoder only after land is ready
+        L.Control.geocoder({ defaultMarkGeocode:false, placeholder:'Search an address…' })
+          .on('markgeocode', (e) => {
+            const c = e.geocode.center, b = e.geocode.bbox;
+            if (b) map.fitBounds(b.pad(0.02)); else map.setView(c, 17);
+            if (alreadySaved) { showBanner("You already added your location from this device 💙"); return; }
+            if (!pointIsOnLand(landGeom, c)) { showBanner("Please click on land (not ocean/Antarctica)"); return; }
+            createStickerMarker(c, currentSticker, true);
+          }).addTo(map);
+
+        // Map click after land is ready
+        map.on('click', (e) => {
+          if (alreadySaved) { showBanner("You already added your location from this device 💙"); return; }
+          if (!pointIsOnLand(landGeom, e.latlng)) { showBanner("Please click on land (not ocean/Antarctica)"); return; }
+          createStickerMarker(e.latlng, currentSticker, true);
+        });
+
+        // Locate me after land is ready
+        locateBtn.addEventListener('click', () => {
+          if (!navigator.geolocation) return alert('Geolocation not supported.');
+          navigator.geolocation.getCurrentPosition((pos) => {
+            const ll = L.latLng(pos.coords.latitude, pos.coords.longitude);
+            map.setView(ll, 16);
+            if (alreadySaved) { showBanner("You already added your location from this device 💙"); return; }
+            if (!pointIsOnLand(landGeom, ll)) { showBanner("Your location seems over water/Antarctica—place on land."); return; }
+            createStickerMarker(ll, currentSticker, true);
+          }, (err) => alert('Unable to get your location: ' + (err?.message || 'Unknown error')),
+          { enableHighAccuracy:true, timeout:10000, maximumAge:30000 });
+        });
+
+      } catch (err) {
+        console.error('Land load failed:', err);
+        loading.textContent = "Couldn't load land data. Please refresh.";
+      }
+    })();
+
+    // Local reset
+    resetBtn.addEventListener('click', () => {
+      markers.forEach(m => map.removeLayer(m));
+      markers.clear();
     });
   </script>
 </body>
