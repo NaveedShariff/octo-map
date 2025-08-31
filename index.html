@@ -39,7 +39,7 @@
       display:inline-flex;align-items:center;gap:10px;
       box-shadow:0 1px 0 rgba(255,255,255,.05) inset,0 10px 30px rgba(0,0,0,.25)
     }
-    .btn-lg{ padding:14px 18px; font-size:17px; min-height:50px } /* same height for both buttons */
+    .btn-lg{ padding:14px 18px; font-size:17px; min-height:50px }
     .btn:focus-visible{box-shadow:var(--ring)}
 
     .chip{display:inline-flex;align-items:center;justify-content:center;width:34px;height:34px;border-radius:10px;background:#0f1628}
@@ -50,7 +50,7 @@
       position:relative;flex:1;
       margin:0 clamp(14px,3vw,24px) clamp(14px,3vw,24px);
       border-radius:20px;overflow:hidden;
-      border:3px solid #ffffff; /* white stroke */
+      border:3px solid #ffffff;
       background:rgba(0,0,0,.15)
     }
     #map{width:100%;height:100%}
@@ -72,7 +72,7 @@
     .sticker-wrapper{background:transparent;border:none}
     .sticker-img{width:56px;height:56px;object-fit:contain;filter:drop-shadow(0 2px 4px rgba(0,0,0,.45))}
 
-    /* Popup pill styling for the label (click to follow link) */
+    /* Popup pill (click to open X) */
     .leaflet-popup.name-popup .leaflet-popup-content-wrapper{
       background:linear-gradient(180deg,#162445,#0f1c36);
       color:#eaf3ff;border:1px solid #223150;border-radius:999px;
@@ -110,13 +110,11 @@
 </head>
 <body>
   <header>
-    <!-- Title first (left) -->
     <h1 class="title">
       <img src="octo.svg" alt="Octo" class="logo-img">
       Octo Shared Map
     </h1>
 
-    <!-- Then Image + Locate me (same height) -->
     <div class="left-controls">
       <div style="position:relative">
         <button id="stickerBtn" class="btn btn-lg" type="button" aria-expanded="false" aria-controls="palette">
@@ -130,13 +128,11 @@
       <button id="locateBtn" class="btn btn-lg" type="button">📍 Locate me</button>
     </div>
 
-    <!-- Push Help to the right -->
     <div class="spacer"></div>
     <button id="helpBtnHeader" class="btn btn-lg" type="button">Help</button>
   </header>
 
   <div class="wrap">
-    <!-- Bottom-left tools -->
     <div class="toolbar">
       <button id="resetBtn" class="small" type="button">Reset (local only)</button>
       <button id="replaceBtn" class="small alt" type="button" title="Replace your pin">Replace my pin</button>
@@ -154,8 +150,8 @@
       <p><strong>How it works</strong></p>
       <ol>
         <li>Choose an image, then click the map (on land).</li>
-        <li><strong>Enter your X handle</strong> (e.g., <code>@real_intern</code> or <code>real_intern</code>), then press <em>Enter</em> or click <em>Add</em>.</li>
-        <li>The label shows <code>real_intern + octo lives in CITY</code>. Clicking that label opens <code>https://x.com/real_intern</code> in a new tab.</li>
+        <li>Enter your X handle, then press <em>Enter</em> or click <em>Add</em>.</li>
+        <li>The label shows <code>{handle} octo lives in {CITY}</code>. Clicking it opens your profile.</li>
       </ol>
       <div style="margin-top:10px; text-align:right">
         <button class="small" value="ok" type="submit" autofocus>Got it</button>
@@ -202,7 +198,7 @@
       setTimeout(()=>banner.classList.remove('show'), 2600);
     }
 
-    // Only block submits for our inline name/handle form
+    // Only block submits from our inline form (we handle its submit ourselves)
     document.addEventListener('submit', (e) => {
       const t = e.target;
       if (t && t.classList && t.classList.contains('name-form')) e.preventDefault();
@@ -277,7 +273,6 @@
       return landFeature; // Feature or Geometry accepted by checker
     }
 
-    // Robust land check with reverse-geocode fallback (handles coasts)
     function pointInLandGeometry(geom, latlng){
       if (!geom) return false;
       if (latlng.lat < -60) return false; // Antarctica guard
@@ -346,14 +341,10 @@
     function extractHandle(raw){
       if (!raw) return null;
       let h = String(raw).trim();
-      // Allow a pasted profile URL
-      h = h.replace(/^https?:\/\/(www\.)?x\.com\//i,'');
-      // Strip leading @
-      h = h.replace(/^@/,'');
-      // Keep only the segment before any /?#…
-      h = h.split(/[/?#]/)[0];
-      // Validate: letters, numbers, underscores. (X is case-insensitive; display as typed)
-      if (!/^[A-Za-z0-9_]{1,30}$/.test(h)) return null;
+      h = h.replace(/^https?:\/\/(www\.)?x\.com\//i,''); // allow pasted URL
+      h = h.replace(/^@/,'');                              // strip leading @
+      h = h.split(/[/?#]/)[0];                             // first path segment only
+      if (!/^[A-Za-z0-9_]{1,30}$/.test(h)) return null;   // X handle validation
       return h;
     }
 
@@ -367,7 +358,6 @@
       });
     }
 
-    // Label shows only when clicking the marker (popup pill). If handle provided, make it a link to X.
     function setMarkerLabel(marker, text){
       marker.bindPopup(`<div>${text}</div>`, {
         closeButton:false,
@@ -377,7 +367,7 @@
     }
     function setMarkerLabelWithLink(marker, handle, cityText){
       const url = `https://x.com/${encodeURIComponent(handle)}`;
-      const html = `<a class="name-link" href="${url}" target="_blank" rel="noopener noreferrer">${handle} + octo lives in ${cityText}</a>`;
+      const html = `<a class="name-link" href="${url}" target="_blank" rel="noopener noreferrer">${handle} octo lives in ${cityText}</a>`;
       marker.bindPopup(`<div>${html}</div>`, {
         closeButton:false,
         autoClose:true,
@@ -385,7 +375,6 @@
       });
     }
 
-    const sanitize = s => s.replace(/[<>]/g, '');
     const markers = new Set();
     const serverMarkers = new Map();
 
@@ -396,15 +385,14 @@
       const id = 'm' + Math.random().toString(36).slice(2);
       const popupHtml = `
         <form class="name-form" data-id="${id}" style="display:flex;gap:6px;align-items:center;background:#0f1628;border:1px solid #223150;border-radius:12px;padding:6px;">
-          <input placeholder="Enter your X handle (e.g. @real_intern)" required maxlength="40"
+          <input placeholder="Enter your X handle" required maxlength="40"
                  style="background:transparent;border:0;outline:0;color:#e7eefc;padding:6px 8px;width:260px">
-          <button type="button" class="add" style="background:#1b2a4b;color:#e7eefc;border:1px solid #2c3b64;border-radius:10px;padding:6px 10px;font-weight:600;cursor:pointer">Add</button>
-          <button type="button" class="del" style="background:#2a3759;border:1px solid #3b4b75;color:#cfe0ff;border-radius:10px;padding:6px 10px;cursor:pointer">Delete</button>
+          <button type="submit" class="add" style="background:#1b2a4b;color:#e7eefc;border:1px solid #2c3b64;border-radius:10px;padding:6px 12px;font-weight:700;cursor:pointer">Add</button>
         </form>
       `;
       m.bindPopup(popupHtml, { closeOnClick:false, autoClose:false }); // input form popup
-      if (openPopup) m.openPopup();
 
+      // ✅ Bind popup handlers BEFORE possibly opening it (fixes first-click Add)
       m.on('popupopen', (ev) => {
         const popupEl = ev.popup.getElement();
         if (popupEl) {
@@ -417,52 +405,53 @@
 
         const input = form.querySelector('input');
         const addBtn = form.querySelector('.add');
-        const delBtn = form.querySelector('.del');
         if (input) input.focus();
 
+        let busy = false; // guard to ensure single execution
         const addAction = async () => {
-          if (alreadySaved && !replacing) { showBanner("You already added your location from this device 💙"); return; }
+          if (busy) return;
+          busy = true;
 
-          const raw = input.value.trim(); if (!raw) return;
+          if (alreadySaved && !replacing) { showBanner("You already added your location from this device 💙"); busy = false; return; }
+
+          const raw = (input.value || '').trim(); if (!raw) { busy = false; return; }
           const parsedHandle = extractHandle(raw);
-          if (!parsedHandle) {
-            showBanner("Please enter a valid X handle (letters, numbers, underscores).");
-            return;
-          }
-          const displayHandle = parsedHandle; // shown without @, as requested
+          if (!parsedHandle) { showBanner("Please enter a valid X handle."); busy = false; return; }
 
           // Close input popup; set click-popup label with link (city resolving…)
           m.closePopup();
-          setMarkerLabelWithLink(m, displayHandle, '…');
+          setMarkerLabelWithLink(m, parsedHandle, '…');
 
-          // Get city and update
+          // Resolve city and update popup text
           const city = await getCityName(m.getLatLng());
-          setMarkerLabelWithLink(m, displayHandle, city);
+          setMarkerLabelWithLink(m, parsedHandle, city);
 
-          // Save to Firestore (store handle + compatibility name field)
+          // Save to Firestore (store handle; keep legacy 'name' for older clients)
           const { lat, lng } = m.getLatLng();
           try {
             await saveMarkerToFirestore({
-              handle: displayHandle,
-              name: displayHandle,   // legacy compatibility
+              handle: parsedHandle,
+              name: parsedHandle,
               city, lat, lng, sticker: currentSticker
             });
-            map.removeLayer(m); markers.delete(m);  // server will re-render official marker
+            map.removeLayer(m); markers.delete(m);  // server will render the official marker
           } catch (e) {
             console.error('Save failed:', e);
             showBanner("Save failed: " + (e?.message || "Unknown error"));
             map.removeLayer(m); markers.delete(m);
           } finally {
             replacing = false;
+            busy = false;
           }
         };
 
-        addBtn.addEventListener('click', addAction, { once:true });
-        input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); addAction(); } });
-        delBtn.addEventListener('click', () => { map.removeLayer(m); markers.delete(m); replacing = false; });
+        form.addEventListener('submit', (e) => { e.preventDefault(); addAction(); });
+        addBtn.addEventListener('click', (e) => { e.preventDefault(); addAction(); });
       });
 
-      // Keep clicks from bubbling
+      if (openPopup) m.openPopup(); // open AFTER we attached 'popupopen' listener
+
+      // Keep marker clicks from bubbling to the map
       m.on('click', (e) => { if (e.originalEvent) e.originalEvent.stopPropagation(); });
 
       return m;
@@ -479,17 +468,15 @@
     let isAdmin = false;
 
     function drawServerMarker(id, rec){
-      // remove old if re-added/modified
       const existing = serverMarkers.get(id);
       if (existing) { map.removeLayer(existing); serverMarkers.delete(id); }
 
       const m = L.marker([rec.lat, rec.lng], { draggable:false, icon:stickerIcon(rec.sticker) }).addTo(map);
 
-      // Prefer handle; fall back to legacy name (no link if no handle)
       if (rec.handle) {
         setMarkerLabelWithLink(m, rec.handle, rec.city || 'this area');
       } else if (rec.name) {
-        setMarkerLabel(m, `${rec.name} + octo lives in ${rec.city || 'this area'}`);
+        setMarkerLabel(m, `${rec.name} octo lives in ${rec.city || 'this area'}`);
       } else {
         setMarkerLabel(m, `octo lives in ${rec.city || 'this area'}`);
       }
@@ -523,7 +510,6 @@
       if (!user) return;
       myUid = user.uid;
 
-      // reflect admin status if you sign in with email/pw
       isAdmin = (auth.currentUser && auth.currentUser.uid === ADMIN_UID);
       updateAdminUI();
 
@@ -550,7 +536,7 @@
         const landGeom = await loadLandGeometry();
         loading.classList.add('hidden');
 
-        // Geocoder (async handler to use isLandSmart)
+        // Geocoder
         L.Control.geocoder({ defaultMarkGeocode:false, placeholder:'Search an address…' })
           .on('markgeocode', async (e) => {
             const c = e.geocode.center, b = e.geocode.bbox;
@@ -610,7 +596,7 @@
           await signOut(auth);
           updateAdminStateAfterAuth();
           showBanner("Signed out admin.");
-          await signInAnonymously(auth); // keep app running
+          await signInAnonymously(auth);
           return;
         }
         const email = prompt("Admin email:");
