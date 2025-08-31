@@ -12,16 +12,25 @@
   <style>
     :root{--bg:#0b1220;--panel:#11192b;--ink:#e7eefc;--muted:#9fb0cf;--ring:0 0 0 3px rgba(122,162,255,.35)}
     *{box-sizing:border-box} html,body{height:100%}
-    body{margin:0;height:100%;background:radial-gradient(1200px 600px at 70% -10%,rgba(76,243,194,.07),transparent),radial-gradient(900px 700px at -20% 20%,rgba(122,162,255,.08),transparent),var(--bg);color:var(--ink);font:16px/1.45 ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,"Helvetica Neue",Arial,"Apple Color Emoji","Segoe UI Emoji";display:flex;flex-direction:column;gap:12px}
+    body{
+      margin:0;height:100%;
+      /* 🔷 Change #1: background image */
+      background: #000 url('background.png') center / cover no-repeat fixed;
+      color:var(--ink);
+      font:16px/1.45 ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,"Helvetica Neue",Arial,"Apple Color Emoji","Segoe UI Emoji";
+      display:flex;flex-direction:column;gap:12px
+    }
     header{padding:14px clamp(14px,3vw,24px) 0;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
-    h1{margin:0;font-size:clamp(18px,2.4vw,22px)}
+    h1{margin:0;font-size:clamp(18px,2.4vw,22px);display:flex;align-items:center;gap:10px}
+    /* 🔷 Change #2: title image styling */
+    .logo-img{height:1.4em; width:auto; display:inline-block; vertical-align:middle; border-radius:8px}
     .controls{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
     .btn{appearance:none;border:0;outline:0;cursor:pointer;padding:10px 14px;border-radius:14px;background:linear-gradient(180deg,#1a2440,#131d35);color:var(--ink);font-weight:600;display:inline-flex;align-items:center;gap:10px;box-shadow:0 1px 0 rgba(255,255,255,.05) inset,0 10px 30px rgba(0,0,0,.25)}
     .btn:focus-visible{box-shadow:var(--ring)}
     .chip{display:inline-flex;align-items:center;justify-content:center;width:34px;height:34px;border-radius:10px;background:#0f1628}
     .chip img{width:26px;height:26px;display:block;object-fit:contain}
     .hint{color:var(--muted);font-size:14px}
-    .wrap{position:relative;flex:1;margin:0 clamp(14px,3vw,24px) clamp(14px,3vw,24px);border-radius:20px;overflow:hidden;border:1px solid #1c2742}
+    .wrap{position:relative;flex:1;margin:0 clamp(14px,3vw,24px) clamp(14px,3vw,24px);border-radius:20px;overflow:hidden;border:1px solid #1c2742;background:rgba(0,0,0,.15)}
     #map{width:100%;height:100%}
     .palette{position:absolute;z-index:1000;margin-top:8px;background:var(--panel);border:1px solid #24304d;border-radius:16px;padding:10px;width:min(520px,92vw);display:none;box-shadow:0 12px 40px rgba(0,0,0,.4)}
     .palette.open{display:block}
@@ -50,7 +59,11 @@
 </head>
 <body>
   <header>
-    <h1>🌍 Shared Octo Map</h1>
+    <h1>
+      <!-- 🔷 Change #2: replace emoji with your image -->
+      <img src="octo.png" alt="Octo" class="logo-img">
+      Shared Octo Map
+    </h1>
     <div class="controls">
       <div style="position:relative">
         <button id="stickerBtn" class="btn" type="button" aria-expanded="false" aria-controls="palette">
@@ -100,14 +113,13 @@
     import { getFirestore, doc, setDoc, onSnapshot, collection, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.12.4/firebase-firestore.js";
     import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.4/firebase-auth.js";
 
-    // ======== 1) PASTE YOUR FIREBASE CONFIG BELOW (from console) ========
+    // ======== Firebase config (yours) ========
     const firebaseConfig = {
       apiKey:     "AIzaSyA3iDfLssQf7vbafMP1zEb1xnixhvKIM60",
       authDomain: "octo-map-d9c71.firebaseapp.com",
       projectId:  "octo-map-d9c71",
-      // storageBucket, messagingSenderId, appId are optional for this page
     };
-    // =====================================================================
+    // =========================================
 
     // Prevent any accidental page submits
     document.addEventListener('submit', (e) => e.preventDefault(), true);
@@ -123,7 +135,7 @@
     const locateBtn = document.getElementById('locateBtn');
     const banner = document.getElementById('banner');
 
-    // Your local sticker images
+    // Stickers
     const STICKERS = ["1 (1).png","1 (2).png","1 (3).png","1 (4).png","1 (5).png","1 (6).png","1 (7).png"];
     let currentSticker = STICKERS[0];
     STICKERS.forEach(src => {
@@ -147,11 +159,21 @@
     document.addEventListener('click', (e) => { if (!paletteEl.contains(e.target) && !stickerBtn.contains(e.target)) { paletteEl.classList.remove('open'); stickerBtn.setAttribute('aria-expanded','false'); }});
     helpBtn.addEventListener('click', () => { if (typeof helpDialog.showModal === 'function') helpDialog.showModal(); else alert('Choose image → click map → type a name → Add.'); });
 
+    // 🔷 Change #3: Only one world (no horizontal wrap)
+    const worldBounds = L.latLngBounds([-85, -180], [85, 180]); // clamp near the poles
+
     // Leaflet map
-    const map = L.map('map', { zoomControl: true }).setView([20, 0], 2);
+    const map = L.map('map', {
+      zoomControl: true,
+      maxBounds: worldBounds,
+      maxBoundsViscosity: 1.0 // feel "sticky" at the edges, no sliding into another world
+    }).setView([20, 0], 2);
+
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{
       maxZoom: 19,
-      attribution:'&copy; OpenStreetMap contributors'
+      attribution:'&copy; OpenStreetMap contributors',
+      noWrap: true,     // ✨ stops the world from repeating horizontally
+      bounds: worldBounds
     }).addTo(map);
 
     // Geocoder (search box)
