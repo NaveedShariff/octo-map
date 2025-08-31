@@ -2,10 +2,10 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>Octo Lives There — Open Source (City Auto-detect)</title>
+  <title>Shared Octo Map</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
 
-  <!-- Leaflet & Geocoder CSS (Open Source) -->
+  <!-- Leaflet & Geocoder (Open Source) -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet-control-geocoder/dist/Control.Geocoder.css" />
 
@@ -34,17 +34,23 @@
     .leaflet-control-geocoder-form input{border-radius:10px!important}
     .sticker-wrapper{background:transparent;border:none}
     .sticker-img{width:56px;height:56px;object-fit:contain;filter:drop-shadow(0 2px 4px rgba(0,0,0,.45))}
-    .leaflet-tooltip.name-label{background:linear-gradient(180deg,#162445,#0f1c36);color:#e7eefc;border:1px solid #223150;border-radius:999px;padding:6px 10px;font-weight:700;white-space:nowrap;font-size:14px;box-shadow:0 10px 20px rgba(0,0,0,.28)}
+    .leaflet-tooltip.name-label{
+      background:linear-gradient(180deg,#162445,#0f1c36);color:#e7eefc;border:1px solid #223150;
+      border-radius:999px;padding:6px 10px;font-weight:700;white-space:nowrap;font-size:14px;
+      box-shadow:0 10px 20px rgba(0,0,0,.28)
+    }
     .toolbar{position:absolute;right:14px;top:14px;z-index:1001;display:flex;gap:10px}
     .small{padding:8px 12px;border-radius:12px;font-size:14px;background:#0f1628;border:1px solid #223150;color:var(--ink);cursor:pointer}
     .small:focus-visible{box-shadow:var(--ring);outline:0}
     .ghost{background:transparent}
     @media (max-width:660px){.grid{grid-template-columns:repeat(4,1fr)}}
+    .banner{position:fixed;left:50%;transform:translateX(-50%);bottom:14px;background:#0f1628;border:1px solid #223150;padding:10px 14px;border-radius:12px;font-size:14px;color:#cfe0ff;z-index:2000;display:none}
+    .banner.show{display:block}
   </style>
 </head>
 <body>
   <header>
-    <h1>🌍 Octo Lives There — Open Source</h1>
+    <h1>🌍 Shared Octo Map</h1>
     <div class="controls">
       <div style="position:relative">
         <button id="stickerBtn" class="btn" type="button" aria-expanded="false" aria-controls="palette">
@@ -56,25 +62,27 @@
         </div>
       </div>
       <button id="locateBtn" class="btn" type="button">📍 Locate me</button>
-      <span class="hint">Pick an image → click map → type a name → Add will show “NAME "+" octo lives in CITY”.</span>
+      <span class="hint">Pick an image → click map → type a name → Add/Enter closes box and shows “NAME + octo lives in CITY” (public & realtime).</span>
     </div>
   </header>
 
   <div class="wrap">
     <div class="toolbar">
-      <button id="resetBtn" class="small" type="button">Reset</button>
+      <button id="resetBtn" class="small" type="button">Reset (local only)</button>
       <button id="helpBtn" class="small ghost" type="button">Help</button>
     </div>
     <div id="map" aria-label="Interactive real-world street map"></div>
   </div>
 
+  <div id="banner" class="banner">You already added your location from this device 💙</div>
+
   <dialog id="helpDialog">
     <form method="dialog" style="max-width:560px">
       <p><strong>How it works</strong></p>
       <ol>
-        <li>Click <em>Image</em> to choose one of your images.</li>
-        <li>Click the map (or search via the geocoder) to place it.</li>
-        <li>Type a name and click <em>Add</em>. The popup hides and the marker shows “NAME + octo lives in CITY”.</li>
+        <li>Choose an image, then click the map.</li>
+        <li>Type a name and press <em>Enter</em> or click <em>Add</em>. The box closes, a label appears, and it’s saved for everyone.</li>
+        <li>Each device can add exactly one location.</li>
       </ol>
       <div style="margin-top:10px; text-align:right">
         <button class="small" value="ok" autofocus>Got it</button>
@@ -82,18 +90,29 @@
     </form>
   </dialog>
 
-  <!-- Leaflet & Geocoder JS (Open Source) -->
+  <!-- Leaflet & Geocoder JS -->
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script src="https://unpkg.com/leaflet-control-geocoder/dist/Control.Geocoder.js"></script>
 
-  <script>
+  <!-- Firebase (modular SDK via CDN) -->
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.4/firebase-app.js";
+    import { getFirestore, doc, setDoc, onSnapshot, collection, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.12.4/firebase-firestore.js";
+    import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.4/firebase-auth.js";
+
+    // ======== 1) PASTE YOUR FIREBASE CONFIG BELOW (from console) ========
+    const firebaseConfig = {
+      apiKey:     "AIzaSyA3iDfLssQf7vbafMP1zEb1xnixhvKIM60",
+      authDomain: "octo-map-d9c71.firebaseapp.com",
+      projectId:  "octo-map-d9c71",
+      // storageBucket, messagingSenderId, appId are optional for this page
+    };
+    // =====================================================================
+
     // Prevent any accidental page submits
     document.addEventListener('submit', (e) => e.preventDefault(), true);
 
-    // Your local sticker images (no emojis)
-    const STICKERS = ["1 (1).png","1 (2).png","1 (3).png","1 (4).png","1 (5).png","1 (6).png","1 (7).png"];
-
-    // UI refs
+    // UI elements
     const paletteEl = document.getElementById('palette');
     const stickerBtn = document.getElementById('stickerBtn');
     const imgGrid = document.getElementById('imgGrid');
@@ -102,8 +121,10 @@
     const helpBtn = document.getElementById('helpBtn');
     const helpDialog = document.getElementById('helpDialog');
     const locateBtn = document.getElementById('locateBtn');
+    const banner = document.getElementById('banner');
 
-    // Build palette
+    // Your local sticker images
+    const STICKERS = ["1 (1).png","1 (2).png","1 (3).png","1 (4).png","1 (5).png","1 (6).png","1 (7).png"];
     let currentSticker = STICKERS[0];
     STICKERS.forEach(src => {
       const b = document.createElement('button');
@@ -123,32 +144,28 @@
       paletteEl.classList.toggle('open', open);
       stickerBtn.setAttribute('aria-expanded', String(open));
     });
-    document.addEventListener('click', (e) => {
-      if (!paletteEl.contains(e.target) && !stickerBtn.contains(e.target)) {
-        paletteEl.classList.remove('open'); stickerBtn.setAttribute('aria-expanded', 'false');
-      }
-    });
-    helpBtn.addEventListener('click', () => {
-      if (typeof helpDialog.showModal === 'function') helpDialog.showModal();
-      else alert('Choose image → click map → type a name → Add → popup hides and label shows.');
-    });
+    document.addEventListener('click', (e) => { if (!paletteEl.contains(e.target) && !stickerBtn.contains(e.target)) { paletteEl.classList.remove('open'); stickerBtn.setAttribute('aria-expanded','false'); }});
+    helpBtn.addEventListener('click', () => { if (typeof helpDialog.showModal === 'function') helpDialog.showModal(); else alert('Choose image → click map → type a name → Add.'); });
 
-    // Leaflet map (OpenStreetMap tiles)
+    // Leaflet map
     const map = L.map('map', { zoomControl: true }).setView([20, 0], 2);
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{
       maxZoom: 19,
       attribution:'&copy; OpenStreetMap contributors'
     }).addTo(map);
 
-    // Address search (Nominatim via leaflet-control-geocoder; open-source)
+    // Geocoder (search box)
     L.Control.geocoder({ defaultMarkGeocode:false, placeholder:'Search an address…' })
       .on('markgeocode', e => {
         const c = e.geocode.center, b = e.geocode.bbox;
         if (b) map.fitBounds(b.pad(0.02)); else map.setView(c, 17);
+        if (alreadySaved) { showOnceBanner(); return; }
         createStickerMarker(c, currentSticker, true);
       }).addTo(map);
 
+    // Basic helpers
     const markers = new Set();
+    const serverMarkers = new Map(); // docId -> Leaflet marker (from Firestore)
     const sanitize = s => s.replace(/[<>]/g, '');
 
     function stickerIcon(src) {
@@ -159,37 +176,37 @@
         iconAnchor: [28, 56]
       });
     }
+    function setMarkerLabel(marker, text){
+      const t = marker.getTooltip();
+      if (t) t.setContent(text);
+      else marker.bindTooltip(text, { permanent:true, direction:'top', offset:[0,-8], className:'name-label' }).openTooltip();
+    }
 
-    // Simple cache for reverse geocoding to be polite with Nominatim
-    const reverseCache = new Map(); // key: "lat,lng" rounded
-
+    // Reverse geocode (OpenStreetMap Nominatim)
+    const reverseCache = new Map();
     function roundCoord(n){ return Math.round(n * 10000) / 10000; }
     function cacheKey(ll){ return `${roundCoord(ll.lat)},${roundCoord(ll.lng)}`; }
-
-    // Reverse geocode via public Nominatim (OpenStreetMap) — no key required.
     async function getCityName(latlng){
       const key = cacheKey(latlng);
       if (reverseCache.has(key)) return reverseCache.get(key);
-
       const url = new URL('https://nominatim.openstreetmap.org/reverse');
       url.searchParams.set('format','jsonv2');
       url.searchParams.set('lat', latlng.lat);
       url.searchParams.set('lon', latlng.lng);
       url.searchParams.set('zoom','14');
       url.searchParams.set('addressdetails','1');
-
-      const res = await fetch(url.toString(), {
-        headers: { 'Accept-Language': navigator.language || 'en' }
-      });
-      if (!res.ok) { reverseCache.set(key, 'this area'); return 'this area'; }
-      const data = await res.json();
-      const a = data.address || {};
-      const city = a.city || a.town || a.village || a.municipality || a.suburb || a.hamlet || a.county || a.state;
-      const label = city || 'this area';
-      reverseCache.set(key, label);
-      return label;
+      try{
+        const res = await fetch(url.toString(), { headers: { 'Accept-Language': navigator.language || 'en' }});
+        const data = await res.json();
+        const a = data.address || {};
+        const city = a.city || a.town || a.village || a.municipality || a.suburb || a.hamlet || a.county || a.state;
+        const label = city || 'this area';
+        reverseCache.set(key, label);
+        return label;
+      }catch{ return 'this area'; }
     }
 
+    // Create a LOCAL (temporary) marker with popup
     function createStickerMarker(latlng, src, openPopup = true) {
       const m = L.marker(latlng, { draggable:true, icon:stickerIcon(src) }).addTo(map);
       markers.add(m);
@@ -198,7 +215,7 @@
       const popupHtml = `
         <form class="name-form" data-id="${id}" style="display:flex;gap:6px;align-items:center;background:#0f1628;border:1px solid #223150;border-radius:12px;padding:6px;">
           <input placeholder="Type a name…" required maxlength="40"
-                 style="background:transparent;border:0;outline:0;color:#e7eefc;padding:6px 8px;width:200px">
+                 style="background:transparent;border:0;outline:0;color:#e7eefc;padding:6px 8px;width:220px">
           <button type="button" class="add" style="background:#1b2a4b;color:#e7eefc;border:1px solid #2c3b64;border-radius:10px;padding:6px 10px;font-weight:600;cursor:pointer">Add</button>
           <button type="button" class="del" style="background:#2a3759;border:1px solid #3b4b75;color:#cfe0ff;border-radius:10px;padding:6px 10px;cursor:pointer">Delete</button>
         </form>
@@ -207,59 +224,136 @@
       if (openPopup) m.openPopup();
 
       m.on('popupopen', (ev) => {
-        const el = ev.popup.getElement();
-        const form = el.querySelector(`form[data-id="${id}"]`);
+        const popupEl = ev.popup.getElement();
+        if (popupEl) {
+          L.DomEvent.disableClickPropagation(popupEl);
+          L.DomEvent.disableScrollPropagation(popupEl);
+        }
+        const form = popupEl.querySelector(`form[data-id="${id}"]`);
+        if (!form || form.dataset.bound === '1') return;
+        form.dataset.bound = '1';
+
         const input = form.querySelector('input');
         const addBtn = form.querySelector('.add');
         const delBtn = form.querySelector('.del');
         if (input) input.focus();
 
-        // When "Add" is clicked: reverse-geocode → set label → hide popup
-        addBtn.addEventListener('click', async () => {
+        const addAction = async () => {
+          if (alreadySaved) { showOnceBanner(); return; }
           const raw = input.value.trim(); if (!raw) return;
           const name = sanitize(raw);
 
-          // Get city name from the marker's current position
-          const city = await getCityName(m.getLatLng());
-
-          // Show the label on the map and close the popup (hides the box)
-          m.bindTooltip(`${name} + octo lives in ${city}`, {
-            permanent: true, direction: 'top', offset: [0, -8], className: 'name-label'
-          }).openTooltip();
+          // Close box immediately & show provisional label
           m.closePopup();
-        });
+          setMarkerLabel(m, `${name} + octo lives in …`);
 
-        // Enter key acts like Add
-        input.addEventListener('keydown', (e) => {
-          if (e.key === 'Enter') { e.preventDefault(); addBtn.click(); }
-        });
+          // Resolve city, update label
+          const city = await getCityName(m.getLatLng());
+          setMarkerLabel(m, `${name} + octo lives in ${city}`);
 
-        // Delete marker
+          // Save to Firestore (public, one-per-device)
+          const { lat, lng } = m.getLatLng();
+          try {
+            await saveMarkerToFirestore({ name, city, lat, lng, sticker: currentSticker });
+            // After server confirms, remove local temp (server will render the official one)
+            map.removeLayer(m); markers.delete(m);
+          } catch (e) {
+            // Likely already-added; remove temp marker and show banner
+            map.removeLayer(m); markers.delete(m);
+            showOnceBanner();
+          }
+        };
+
+        addBtn.addEventListener('click', addAction, { once:true });
+        input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); addAction(); } });
         delBtn.addEventListener('click', () => { map.removeLayer(m); markers.delete(m); });
       });
 
-      // Don’t place new markers when interacting with existing one
-      m.on('click', (e) => e.originalEvent && e.originalEvent.stopPropagation());
+      // Stop map click when interacting
+      m.on('click', (e) => { if (e.originalEvent) e.originalEvent.stopPropagation(); });
+
+      // If user drags before saving, update preview text if any
+      m.on('dragend', async () => {
+        const t = m.getTooltip(); if (!t) return;
+        const match = t.getContent().match(/^(.*?) \+ octo lives in/i);
+        const name = match ? match[1] : null; if (!name) return;
+        setMarkerLabel(m, `${name} + octo lives in …`);
+        const city = await getCityName(m.getLatLng());
+        setMarkerLabel(m, `${name} + octo lives in ${city}`);
+      });
+
       return m;
     }
 
-    // Place by clicking
-    map.on('click', (e) => createStickerMarker(e.latlng, currentSticker, true));
+    // Map click to place local marker
+    map.on('click', (e) => {
+      if (alreadySaved) { showOnceBanner(); return; }
+      createStickerMarker(e.latlng, currentSticker, true);
+    });
 
-    // Reset all
-    resetBtn.addEventListener('click', () => { markers.forEach(m => map.removeLayer(m)); markers.clear(); });
+    resetBtn.addEventListener('click', () => { // local only; server pins stay
+      markers.forEach(m => map.removeLayer(m));
+      markers.clear();
+    });
 
-    // Locate me
     locateBtn.addEventListener('click', () => {
       if (!navigator.geolocation) return alert('Geolocation not supported.');
       navigator.geolocation.getCurrentPosition((pos) => {
         const ll = L.latLng(pos.coords.latitude, pos.coords.longitude);
         map.setView(ll, 16);
+        if (alreadySaved) { showOnceBanner(); return; }
         createStickerMarker(ll, currentSticker, true);
       }, (err) => alert('Unable to get your location: ' + (err?.message || 'Unknown error')),
       { enableHighAccuracy:true, timeout:10000, maximumAge:30000 });
     });
+
+    // Small helper
+    function showOnceBanner(){ banner.classList.add('show'); setTimeout(()=>banner.classList.remove('show'), 2400); }
+
+    // ======== Firebase boot ========
+    const app  = initializeApp(firebaseConfig);
+    const db   = getFirestore(app);
+    const auth = getAuth(app);
+
+    let myUid = null;
+    let alreadySaved = false; // we flip this if our uid doc exists
+
+    // realtime: draw everyone's official markers
+    function drawServerMarker(id, rec){
+      if (serverMarkers.has(id)) return; // no duplicates
+      const m = L.marker([rec.lat, rec.lng], { draggable:false, icon:stickerIcon(rec.sticker) }).addTo(map);
+      setMarkerLabel(m, `${rec.name} + octo lives in ${rec.city || 'this area'}`);
+      serverMarkers.set(id, m);
+    }
+
+    async function saveMarkerToFirestore({ name, city, lat, lng, sticker }){
+      if (!myUid) throw new Error('not signed in yet');
+      // doc id == my uid; rules enforce "one only"
+      await setDoc(doc(db, 'markers', myUid), {
+        name, city, lat, lng, sticker, createdAt: serverTimestamp()
+      }, { merge:false });
+      alreadySaved = true;
+    }
+    window.saveMarkerToFirestore = saveMarkerToFirestore; // used in addAction
+
+    // sign in anonymously, then subscribe
+    signInAnonymously(auth);
+    onAuthStateChanged(auth, (user) => {
+      if (!user) return;
+      myUid = user.uid;
+
+      // Stream all markers (initial + future)
+      onSnapshot(collection(db, 'markers'), (snap) => {
+        snap.docChanges().forEach(chg => {
+          if (chg.type === 'added') {
+            const id = chg.doc.id;
+            const r = chg.doc.data();
+            drawServerMarker(id, r);
+            if (id === myUid) { alreadySaved = true; }
+          }
+        });
+      });
+    });
   </script>
 </body>
 </html>
-
